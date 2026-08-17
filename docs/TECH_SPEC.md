@@ -155,12 +155,22 @@ interface InputSource {
 
 첫 게임 로직 작업에서 필요한 테스트는 `GameClock`뿐이다. 이후 순수 로직을 추가할 때 해당 기능의 테스트를 함께 추가한다.
 
-매 변경 후 실행한다.
+매 변경 후 전체 검증을 실행한다.
 
 ```bash
-npm test
-npm run build
+npm run verify
 ```
+
+`verify`는 순서대로 `npm test`와 `npm run build`를 실행한다. GitHub와 Cloudflare 배포 환경도 같은 명령을 사용한다.
+
+## 배포
+
+- 정적 웹 빌드는 Cloudflare Workers Static Assets로 배포한다.
+- `main`은 프로덕션, 그 외 브랜치는 외부 플레이테스트용 Preview로 사용한다.
+- 배포 전 `npm run verify`가 반드시 통과해야 한다.
+- 서버 기능이 필요해질 때까지 Worker 엔트리, 데이터 저장소와 `/api` 라우트를 만들지 않는다.
+- 서버 자격 증명은 Cloudflare Runtime Secret에만 저장하고 클라이언트 빌드에 포함하지 않는다.
+- 구체적인 최초 연결과 작업 흐름은 `docs/DEPLOYMENT.md`를 따른다.
 
 ## 나중에 확장할 때 지킬 경계
 

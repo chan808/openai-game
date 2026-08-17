@@ -1,25 +1,15 @@
 import Phaser from 'phaser';
 
-class SetupScene extends Phaser.Scene {
-  create(): void {
-    const marker = this.add.circle(480, 270, 40, 0x4f7cff);
-
-    this.input.once('pointerdown', () => {
-      marker.setFillStyle(0x4fd18b);
-    });
-    this.input.keyboard?.once('keydown-SPACE', () => {
-      marker.setFillStyle(0xffcc4f);
-    });
-  }
-}
+import { ARENA_HEIGHT, ARENA_WIDTH } from './content/tuning';
+import { ArenaScene } from './presentation/ArenaScene';
 
 new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
-  width: 960,
-  height: 540,
+  width: ARENA_WIDTH,
+  height: ARENA_HEIGHT,
   backgroundColor: '#10141f',
-  scene: SetupScene,
+  scene: ArenaScene,
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,

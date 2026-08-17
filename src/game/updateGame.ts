@@ -1,18 +1,35 @@
 import type { SimulationStep } from '../core/GameClock';
-import type { InputFrame, InputSource } from '../core/InputSource';
+import type {
+  InputFrame,
+  InputSource,
+  WeaponSlotId,
+} from '../core/InputSource';
 import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
-  ATTACK_ACTIVE_FRAMES,
-  ATTACK_ARC_RADIANS,
-  ATTACK_COOLDOWN_FRAMES,
-  ATTACK_RANGE,
+  BOW_COOLDOWN_FRAMES,
   DUMMY_RADIUS,
   HIT_FLASH_FRAMES,
+  HIT_STOP_FRAMES,
+  LONGSWORD_ACTIVE_FRAMES,
+  LONGSWORD_COOLDOWN_FRAMES,
+  MAGIC_COOLDOWN_FRAMES,
   PLAYER_MOVE_SPEED,
   PLAYER_RADIUS,
 } from '../content/tuning';
-import type { GameState } from './GameState';
+import type { GameState, WeaponId } from './GameState';
+import { longswordIntersectsCircle } from './longsword';
+import {
+  spawnArrow,
+  spawnMagicProjectile,
+  updateProjectiles,
+} from './projectiles';
+
+const PLAYTEST_WEAPON_SLOTS: Record<WeaponSlotId, WeaponId> = {
+  0: 'longsword',
+  1: 'bow',
+  2: 'magic',
+};
 
 export function updateGame(
   state: GameState,
@@ -22,20 +39,71 @@ export function updateGame(
   const input = inputSource.sample(step.frame);
 
   state.frame = step.frame;
-  tickTimers(state);
-  updatePlayer(state, input, step.dt);
-  updateAttack(state, input);
+  updateSelectedWeapon(state, input.weaponSlotPressed);
+
+  const playerIsHitStopped = state.player.hitStopFramesRemaining > 0;
+  const dummyIsHitStopped = state.dummy.hitStopFramesRemaining > 0;
+
+  tickHitStopTimers(state);
+
+  if (!dummyIsHitStopped) {
+    tickDummyTimers(state);
+  }
+
+  if (!playerIsHitStopped) {
+    tickWeaponAttackTimers(state);
+    updatePlayer(state, input, step.dt);
+    updateWeaponAttacks(state, input);
+  }
+
+  updateProjectiles(
+    state,
+    input.aimTargetX,
+    input.aimTargetY,
+    step.dt,
+  );
 }
 
-function tickTimers(state: GameState): void {
-  state.attack.activeFramesRemaining = Math.max(
+function updateSelectedWeapon(
+  state: GameState,
+  weaponSlotPressed: WeaponSlotId | null,
+): void {
+  if (weaponSlotPressed !== null) {
+    state.selectedWeapon = PLAYTEST_WEAPON_SLOTS[weaponSlotPressed];
+  }
+}
+
+function tickHitStopTimers(state: GameState): void {
+  state.player.hitStopFramesRemaining = Math.max(
     0,
-    state.attack.activeFramesRemaining - 1,
+    state.player.hitStopFramesRemaining - 1,
   );
-  state.attack.cooldownFramesRemaining = Math.max(
+  state.dummy.hitStopFramesRemaining = Math.max(
     0,
-    state.attack.cooldownFramesRemaining - 1,
+    state.dummy.hitStopFramesRemaining - 1,
   );
+}
+
+function tickWeaponAttackTimers(state: GameState): void {
+  state.longswordAttack.activeFramesRemaining = Math.max(
+    0,
+    state.longswordAttack.activeFramesRemaining - 1,
+  );
+  state.longswordAttack.cooldownFramesRemaining = Math.max(
+    0,
+    state.longswordAttack.cooldownFramesRemaining - 1,
+  );
+  state.bowAttack.cooldownFramesRemaining = Math.max(
+    0,
+    state.bowAttack.cooldownFramesRemaining - 1,
+  );
+  state.magicAttack.cooldownFramesRemaining = Math.max(
+    0,
+    state.magicAttack.cooldownFramesRemaining - 1,
+  );
+}
+
+function tickDummyTimers(state: GameState): void {
   state.dummy.hitFlashFramesRemaining = Math.max(
     0,
     state.dummy.hitFlashFramesRemaining - 1,
@@ -60,10 +128,22 @@ function updatePlayer(
 
   moveOutsideDummy(state, nextX, nextY);
 
-  if (input.aimX !== 0 || input.aimY !== 0) {
-    state.player.aimX = input.aimX;
-    state.player.aimY = input.aimY;
+  const aim = normalize(
+    input.aimTargetX - state.player.x,
+    input.aimTargetY - state.player.y,
+  );
+  if (aim.x !== 0 || aim.y !== 0) {
+    state.player.aimX = aim.x;
+    state.player.aimY = aim.y;
   }
+}
+
+function normalize(x: number, y: number): { x: number; y: number } {
+  const length = Math.hypot(x, y);
+  if (length === 0) {
+    return { x: 0, y: 0 };
+  }
+  return { x: x / length, y: y / length };
 }
 
 function clampToArena(value: number, radius: number, size: number): number {
@@ -103,40 +183,61 @@ function moveOutsideDummy(
   );
 }
 
-function updateAttack(state: GameState, input: InputFrame): void {
-  if (input.primaryPressed && state.attack.cooldownFramesRemaining === 0) {
-    state.attack.activeFramesRemaining = ATTACK_ACTIVE_FRAMES;
-    state.attack.cooldownFramesRemaining = ATTACK_COOLDOWN_FRAMES;
-    state.attack.hitDummy = false;
+function updateWeaponAttacks(state: GameState, input: InputFrame): void {
+  updateLongswordAttack(state, input);
+
+  if (!input.primaryPressed) {
+    return;
   }
 
   if (
-    state.attack.activeFramesRemaining > 0 &&
-    !state.attack.hitDummy &&
-    attackIntersectsDummy(state)
+    state.selectedWeapon === 'bow' &&
+    state.bowAttack.cooldownFramesRemaining === 0
   ) {
-    state.attack.hitDummy = true;
-    state.dummy.hitCount += 1;
-    state.dummy.hitFlashFramesRemaining = HIT_FLASH_FRAMES;
+    spawnArrow(state);
+    state.bowAttack.cooldownFramesRemaining = BOW_COOLDOWN_FRAMES;
+  }
+
+  if (
+    state.selectedWeapon === 'magic' &&
+    state.magicAttack.cooldownFramesRemaining === 0 &&
+    spawnMagicProjectile(state)
+  ) {
+    state.magicAttack.cooldownFramesRemaining = MAGIC_COOLDOWN_FRAMES;
   }
 }
 
-function attackIntersectsDummy(state: GameState): boolean {
-  const dx = state.dummy.x - state.player.x;
-  const dy = state.dummy.y - state.player.y;
-  const distanceSquared = dx * dx + dy * dy;
-  const maximumDistance = ATTACK_RANGE + DUMMY_RADIUS;
+function updateLongswordAttack(state: GameState, input: InputFrame): void {
+  const attack = state.longswordAttack;
 
-  if (distanceSquared > maximumDistance * maximumDistance) {
-    return false;
+  if (
+    state.selectedWeapon === 'longsword' &&
+    input.primaryPressed &&
+    attack.cooldownFramesRemaining === 0
+  ) {
+    attack.activeFramesRemaining = LONGSWORD_ACTIVE_FRAMES;
+    attack.cooldownFramesRemaining = LONGSWORD_COOLDOWN_FRAMES;
+    attack.hitDummy = false;
+    attack.aimX = state.player.aimX;
+    attack.aimY = state.player.aimY;
   }
 
-  const distance = Math.sqrt(distanceSquared);
-  if (distance === 0) {
-    return true;
+  if (
+    attack.activeFramesRemaining > 0 &&
+    !attack.hitDummy &&
+    longswordIntersectsCircle(
+      state.player.x,
+      state.player.y,
+      attack,
+      state.dummy.x,
+      state.dummy.y,
+      DUMMY_RADIUS,
+    )
+  ) {
+    attack.hitDummy = true;
+    state.dummy.hitCount += 1;
+    state.dummy.hitFlashFramesRemaining = HIT_FLASH_FRAMES;
+    state.player.hitStopFramesRemaining = HIT_STOP_FRAMES;
+    state.dummy.hitStopFramesRemaining = HIT_STOP_FRAMES;
   }
-
-  const directionDot =
-    (dx * state.player.aimX + dy * state.player.aimY) / distance;
-  return directionDot >= Math.cos(ATTACK_ARC_RADIANS / 2);
 }

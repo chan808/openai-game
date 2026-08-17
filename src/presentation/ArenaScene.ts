@@ -4,20 +4,34 @@ import { GameClock } from '../core/GameClock';
 import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
-  ATTACK_ARC_RADIANS,
-  ATTACK_RANGE,
+  BOW_PROJECTILE_RADIUS,
   DUMMY_RADIUS,
+  LONGSWORD_REACH,
+  LONGSWORD_SWING_RADIANS,
+  MAGIC_PROJECTILE_RADIUS,
   PLAYER_RADIUS,
 } from '../content/tuning';
-import { createInitialGameState } from '../game/GameState';
+import {
+  createInitialGameState,
+  type ProjectileState,
+} from '../game/GameState';
+import {
+  getLongswordSwingAngle,
+  getLongswordSwingDirection,
+} from '../game/longsword';
 import { updateGame } from '../game/updateGame';
-import { PhaserInputSource } from './PhaserInputSource';
+import {
+  PhaserInputSource,
+  WEAPON_SLOT_HINT,
+} from './PhaserInputSource';
 
 const PLAYER_COLOR = 0x4f7cff;
 const DUMMY_COLOR = 0xd65f5f;
 const DUMMY_HIT_COLOR = 0xffffff;
 const AIM_COLOR = 0xdde6ff;
-const ATTACK_COLOR = 0x6fb2ff;
+const LONGSWORD_COLOR = 0x8ec5ff;
+const ARROW_COLOR = 0xffd166;
+const MAGIC_COLOR = 0x75f4c1;
 const ARENA_BORDER_COLOR = 0x34405a;
 
 export class ArenaScene extends Phaser.Scene {
@@ -38,7 +52,7 @@ export class ArenaScene extends Phaser.Scene {
       fontFamily: 'monospace',
       fontSize: '18px',
     });
-    this.inputSource = new PhaserInputSource(this, () => this.state.player);
+    this.inputSource = new PhaserInputSource(this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.inputSource.destroy();
     });
@@ -54,28 +68,50 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private renderState(): void {
-    const { player, dummy, attack } = this.state;
+    const {
+      player,
+      dummy,
+      selectedWeapon,
+      longswordAttack,
+      projectiles,
+    } = this.state;
 
     this.graphics.clear();
     this.graphics.lineStyle(2, ARENA_BORDER_COLOR, 1);
     this.graphics.strokeRect(1, 1, ARENA_WIDTH - 2, ARENA_HEIGHT - 2);
 
-    if (attack.activeFramesRemaining > 0) {
-      const aimAngle = Math.atan2(player.aimY, player.aimX);
-      this.graphics.fillStyle(ATTACK_COLOR, 0.24);
-      this.graphics.lineStyle(2, ATTACK_COLOR, 0.8);
+    if (longswordAttack.activeFramesRemaining > 0) {
+      const aimAngle = Math.atan2(
+        longswordAttack.aimY,
+        longswordAttack.aimX,
+      );
+      const swingAngle = getLongswordSwingAngle(longswordAttack);
+      const swingDirection = getLongswordSwingDirection(longswordAttack);
+
+      this.graphics.fillStyle(LONGSWORD_COLOR, 0.18);
       this.graphics.beginPath();
       this.graphics.moveTo(player.x, player.y);
       this.graphics.arc(
         player.x,
         player.y,
-        ATTACK_RANGE,
-        aimAngle - ATTACK_ARC_RADIANS / 2,
-        aimAngle + ATTACK_ARC_RADIANS / 2,
+        LONGSWORD_REACH,
+        aimAngle - LONGSWORD_SWING_RADIANS / 2,
+        swingAngle,
       );
       this.graphics.closePath();
       this.graphics.fillPath();
-      this.graphics.strokePath();
+
+      this.graphics.lineStyle(5, LONGSWORD_COLOR, 1);
+      this.graphics.lineBetween(
+        player.x + swingDirection.x * PLAYER_RADIUS,
+        player.y + swingDirection.y * PLAYER_RADIUS,
+        player.x + swingDirection.x * LONGSWORD_REACH,
+        player.y + swingDirection.y * LONGSWORD_REACH,
+      );
+    }
+
+    for (const projectile of projectiles) {
+      this.renderProjectile(projectile);
     }
 
     this.graphics.fillStyle(
@@ -87,14 +123,59 @@ export class ArenaScene extends Phaser.Scene {
     this.graphics.fillStyle(PLAYER_COLOR, 1);
     this.graphics.fillCircle(player.x, player.y, PLAYER_RADIUS);
 
+    const displayedAim =
+      longswordAttack.activeFramesRemaining > 0
+        ? longswordAttack
+        : player;
     this.graphics.lineStyle(3, AIM_COLOR, 1);
     this.graphics.lineBetween(
       player.x,
       player.y,
-      player.x + player.aimX * (PLAYER_RADIUS + 28),
-      player.y + player.aimY * (PLAYER_RADIUS + 28),
+      player.x + displayedAim.aimX * (PLAYER_RADIUS + 28),
+      player.y + displayedAim.aimY * (PLAYER_RADIUS + 28),
     );
 
-    this.hitCountText.setText(`hitCount: ${dummy.hitCount}`);
+    this.hitCountText.setText(
+      `weapon: ${selectedWeapon}\n${WEAPON_SLOT_HINT}\nhitCount: ${dummy.hitCount}`,
+    );
+  }
+
+  private renderProjectile(projectile: ProjectileState): void {
+    if (projectile.kind === 'arrow') {
+      const speed = Math.hypot(
+        projectile.velocityX,
+        projectile.velocityY,
+      );
+      const directionX = projectile.velocityX / speed;
+      const directionY = projectile.velocityY / speed;
+
+      this.graphics.lineStyle(4, ARROW_COLOR, 1);
+      this.graphics.lineBetween(
+        projectile.x - directionX * 18,
+        projectile.y - directionY * 18,
+        projectile.x + directionX * 6,
+        projectile.y + directionY * 6,
+      );
+      this.graphics.fillStyle(ARROW_COLOR, 1);
+      this.graphics.fillCircle(
+        projectile.x,
+        projectile.y,
+        BOW_PROJECTILE_RADIUS,
+      );
+      return;
+    }
+
+    this.graphics.fillStyle(MAGIC_COLOR, 0.35);
+    this.graphics.fillCircle(
+      projectile.x,
+      projectile.y,
+      MAGIC_PROJECTILE_RADIUS + 5,
+    );
+    this.graphics.fillStyle(MAGIC_COLOR, 1);
+    this.graphics.fillCircle(
+      projectile.x,
+      projectile.y,
+      MAGIC_PROJECTILE_RADIUS,
+    );
   }
 }

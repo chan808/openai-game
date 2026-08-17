@@ -1,9 +1,12 @@
+export type WeaponSlotId = 0 | 1 | 2;
+
 export interface InputFrame {
   moveX: number;
   moveY: number;
-  aimX: number;
-  aimY: number;
+  aimTargetX: number;
+  aimTargetY: number;
   primaryPressed: boolean;
+  weaponSlotPressed: WeaponSlotId | null;
 }
 
 export interface InputSource {

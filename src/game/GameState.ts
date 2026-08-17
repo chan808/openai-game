@@ -2,14 +2,23 @@ import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
   DUMMY_RADIUS,
+  PLAYER_MAX_HP,
+  PLAYER_MAX_MP,
   PLAYER_RADIUS,
 } from '../content/tuning';
+
+export interface ResourceState {
+  current: number;
+  maximum: number;
+}
 
 export interface PlayerState {
   x: number;
   y: number;
   aimX: number;
   aimY: number;
+  health: ResourceState;
+  mana: ResourceState;
   hitStopFramesRemaining: number;
 }
 
@@ -36,6 +45,10 @@ export interface RangedAttackState {
   cooldownFramesRemaining: number;
 }
 
+export interface SlowState {
+  active: boolean;
+}
+
 export interface ProjectileState {
   id: number;
   kind: ProjectileKind;
@@ -54,6 +67,7 @@ export interface GameState {
   longswordAttack: LongswordAttackState;
   bowAttack: RangedAttackState;
   magicAttack: RangedAttackState;
+  slow: SlowState;
   nextProjectileId: number;
   projectiles: ProjectileState[];
 }
@@ -66,6 +80,14 @@ export function createInitialGameState(): GameState {
       y: ARENA_HEIGHT * 0.5,
       aimX: 1,
       aimY: 0,
+      health: {
+        current: PLAYER_MAX_HP,
+        maximum: PLAYER_MAX_HP,
+      },
+      mana: {
+        current: PLAYER_MAX_MP,
+        maximum: PLAYER_MAX_MP,
+      },
       hitStopFramesRemaining: 0,
     },
     dummy: {
@@ -88,6 +110,9 @@ export function createInitialGameState(): GameState {
     },
     magicAttack: {
       cooldownFramesRemaining: 0,
+    },
+    slow: {
+      active: false,
     },
     nextProjectileId: 1,
     projectiles: [],

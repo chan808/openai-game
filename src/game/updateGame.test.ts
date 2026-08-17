@@ -3,9 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
+  BOW_PROJECTILE_RADIUS,
+  BOW_PROJECTILE_SPEED,
   HIT_FLASH_FRAMES,
   HIT_STOP_FRAMES,
   LONGSWORD_ACTIVE_FRAMES,
+  PLAYER_MOVE_SPEED,
+  PLAYER_RADIUS,
+  SLOW_WORLD_TIME_SCALE,
 } from '../content/tuning';
 import { FIXED_STEP_SECONDS } from '../core/GameClock';
 import type { InputFrame, InputSource } from '../core/InputSource';
@@ -18,6 +23,7 @@ const IDLE_INPUT: InputFrame = {
   aimTargetX: ARENA_WIDTH,
   aimTargetY: ARENA_HEIGHT / 2,
   primaryPressed: false,
+  slowHeld: false,
   weaponSlotPressed: null,
 };
 
@@ -36,7 +42,7 @@ class TestInputSource implements InputSource {
   }
 }
 
-describe('updateGame longsword attack', () => {
+describe('updateGame', () => {
   it('freezes the attacker and target for the configured simulation frames', () => {
     const state = createInitialGameState();
     const inputSource = new TestInputSource({
@@ -172,6 +178,37 @@ describe('updateGame longsword attack', () => {
     expect(state.selectedWeapon).toBe('bow');
     expect(state.projectiles).toHaveLength(1);
     expect(state.projectiles[0]!.kind).toBe('arrow');
+  });
+
+  it('keeps the player responsive while slowing world projectiles', () => {
+    const state = createInitialGameState();
+    const inputSource = new TestInputSource({
+      ...IDLE_INPUT,
+      moveX: 1,
+      primaryPressed: true,
+      slowHeld: true,
+      weaponSlotPressed: 1,
+    });
+    const startPlayerX = state.player.x;
+
+    runFrame(state, inputSource, 1);
+
+    const arrow = state.projectiles[0]!;
+    const arrowSpawnX =
+      startPlayerX +
+      PLAYER_MOVE_SPEED * FIXED_STEP_SECONDS +
+      PLAYER_RADIUS +
+      BOW_PROJECTILE_RADIUS +
+      2;
+
+    expect(state.slow.active).toBe(true);
+    expect(state.player.x).toBeCloseTo(
+      startPlayerX + PLAYER_MOVE_SPEED * FIXED_STEP_SECONDS,
+    );
+    expect(arrow.x).toBeCloseTo(
+      arrowSpawnX +
+        BOW_PROJECTILE_SPEED * FIXED_STEP_SECONDS * SLOW_WORLD_TIME_SCALE,
+    );
   });
 });
 

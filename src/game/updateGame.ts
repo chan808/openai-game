@@ -24,6 +24,7 @@ import {
   spawnMagicProjectile,
   updateProjectiles,
 } from './projectiles';
+import { updateSlow } from './slow';
 
 const PLAYTEST_WEAPON_SLOTS: Record<WeaponSlotId, WeaponId> = {
   0: 'longsword',
@@ -40,14 +41,15 @@ export function updateGame(
 
   state.frame = step.frame;
   updateSelectedWeapon(state, input.weaponSlotPressed);
+  const worldTimeScale = updateSlow(state, input.slowHeld, step.dt);
 
   const playerIsHitStopped = state.player.hitStopFramesRemaining > 0;
   const dummyIsHitStopped = state.dummy.hitStopFramesRemaining > 0;
 
-  tickHitStopTimers(state);
+  tickHitStopTimers(state, worldTimeScale);
 
   if (!dummyIsHitStopped) {
-    tickDummyTimers(state);
+    tickDummyTimers(state, worldTimeScale);
   }
 
   if (!playerIsHitStopped) {
@@ -60,7 +62,8 @@ export function updateGame(
     state,
     input.aimTargetX,
     input.aimTargetY,
-    step.dt,
+    step.dt * worldTimeScale,
+    worldTimeScale,
   );
 }
 
@@ -73,14 +76,17 @@ function updateSelectedWeapon(
   }
 }
 
-function tickHitStopTimers(state: GameState): void {
+function tickHitStopTimers(
+  state: GameState,
+  worldTimeScale: number,
+): void {
   state.player.hitStopFramesRemaining = Math.max(
     0,
     state.player.hitStopFramesRemaining - 1,
   );
   state.dummy.hitStopFramesRemaining = Math.max(
     0,
-    state.dummy.hitStopFramesRemaining - 1,
+    state.dummy.hitStopFramesRemaining - worldTimeScale,
   );
 }
 
@@ -103,10 +109,10 @@ function tickWeaponAttackTimers(state: GameState): void {
   );
 }
 
-function tickDummyTimers(state: GameState): void {
+function tickDummyTimers(state: GameState, worldTimeScale: number): void {
   state.dummy.hitFlashFramesRemaining = Math.max(
     0,
-    state.dummy.hitFlashFramesRemaining - 1,
+    state.dummy.hitFlashFramesRemaining - worldTimeScale,
   );
 }
 

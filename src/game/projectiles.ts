@@ -53,6 +53,7 @@ export function updateProjectiles(
   aimTargetX: number,
   aimTargetY: number,
   dt: number,
+  frameDelta: number,
 ): void {
   const survivingProjectiles: ProjectileState[] = [];
 
@@ -63,7 +64,7 @@ export function updateProjectiles(
 
     projectile.x += projectile.velocityX * dt;
     projectile.y += projectile.velocityY * dt;
-    projectile.framesRemaining -= 1;
+    projectile.framesRemaining -= frameDelta;
 
     if (projectileIntersectsDummy(state, projectile)) {
       state.dummy.hitCount += 1;

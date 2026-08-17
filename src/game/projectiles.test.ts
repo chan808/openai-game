@@ -28,6 +28,7 @@ describe('projectiles', () => {
       ARENA_WIDTH,
       ARENA_HEIGHT / 2,
       FIXED_STEP_SECONDS,
+      1,
     );
 
     expect(arrow.id).toBe(1);
@@ -50,6 +51,7 @@ describe('projectiles', () => {
       magic.x,
       0,
       FIXED_STEP_SECONDS,
+      1,
     );
 
     expect(Math.hypot(magic.velocityX, magic.velocityY)).toBeCloseTo(
@@ -79,6 +81,7 @@ describe('projectiles', () => {
         ARENA_WIDTH,
         ARENA_HEIGHT / 2,
         FIXED_STEP_SECONDS,
+        1,
       );
     }
 

@@ -26,6 +26,13 @@ npm run dev
 npm run verify
 ```
 
+## 현재 조작
+
+- `WASD`: 이동
+- 포인터와 왼쪽 클릭: 조준과 기본 공격
+- `1`, `2`, `3`: 롱소드, 활, 마법 전환
+- `Space` 누르기: MP를 소모해 슬로우 유지
+
 Cloudflare 로그인이 완료된 환경에서는 `npm run deploy:preview`로 공유 가능한 Preview를 만들고, `npm run deploy`로 프로덕션에 배포할 수 있다. 평소에는 GitHub와 연결된 Cloudflare Workers Builds를 사용한다.
 
 구체적인 키 배정과 튜닝 값은 아직 확정 사양이 아니다.

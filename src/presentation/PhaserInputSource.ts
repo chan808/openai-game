@@ -12,6 +12,7 @@ interface Position {
 }
 
 export const WEAPON_SLOT_HINT = '1 longsword | 2 bow | 3 magic';
+export const SLOW_HINT = 'hold SPACE: slow';
 
 export class PhaserInputSource implements InputSource {
   private readonly up: Phaser.Input.Keyboard.Key;
@@ -21,6 +22,7 @@ export class PhaserInputSource implements InputSource {
   private readonly weapon1: Phaser.Input.Keyboard.Key;
   private readonly weapon2: Phaser.Input.Keyboard.Key;
   private readonly weapon3: Phaser.Input.Keyboard.Key;
+  private readonly slow: Phaser.Input.Keyboard.Key;
   private primaryLatched = false;
   private weaponSlotLatched: WeaponSlotId | null = null;
 
@@ -37,6 +39,7 @@ export class PhaserInputSource implements InputSource {
     this.weapon1 = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE);
     this.weapon2 = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TWO);
     this.weapon3 = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.THREE);
+    this.slow = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
     scene.input.on('pointerdown', this.onPointerDown, this);
     this.weapon1.on('down', this.onWeapon1Down, this);
@@ -62,6 +65,7 @@ export class PhaserInputSource implements InputSource {
       aimTargetX: pointer.worldX,
       aimTargetY: pointer.worldY,
       primaryPressed,
+      slowHeld: this.slow.isDown,
       weaponSlotPressed,
     };
   }

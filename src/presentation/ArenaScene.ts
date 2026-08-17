@@ -10,10 +10,12 @@ import {
   LONGSWORD_SWING_RADIANS,
   MAGIC_PROJECTILE_RADIUS,
   PLAYER_RADIUS,
+  SLOW_WORLD_TIME_SCALE,
 } from '../content/tuning';
 import {
   createInitialGameState,
   type ProjectileState,
+  type ResourceState,
 } from '../game/GameState';
 import {
   getLongswordSwingAngle,
@@ -22,6 +24,7 @@ import {
 import { updateGame } from '../game/updateGame';
 import {
   PhaserInputSource,
+  SLOW_HINT,
   WEAPON_SLOT_HINT,
 } from './PhaserInputSource';
 
@@ -33,12 +36,18 @@ const LONGSWORD_COLOR = 0x8ec5ff;
 const ARROW_COLOR = 0xffd166;
 const MAGIC_COLOR = 0x75f4c1;
 const ARENA_BORDER_COLOR = 0x34405a;
+const SLOW_COLOR = 0x8a9dff;
+const RESOURCE_BACKGROUND_COLOR = 0x151a26;
+const HEALTH_COLOR = 0x65d17a;
+const MANA_COLOR = 0x598cff;
+const RESOURCE_BAR_WIDTH = 180;
+const RESOURCE_BAR_HEIGHT = 12;
 
 export class ArenaScene extends Phaser.Scene {
   private readonly clock = new GameClock();
   private readonly state = createInitialGameState();
   private graphics!: Phaser.GameObjects.Graphics;
-  private hitCountText!: Phaser.GameObjects.Text;
+  private statusText!: Phaser.GameObjects.Text;
   private inputSource!: PhaserInputSource;
 
   constructor() {
@@ -47,7 +56,7 @@ export class ArenaScene extends Phaser.Scene {
 
   create(): void {
     this.graphics = this.add.graphics();
-    this.hitCountText = this.add.text(16, 16, '', {
+    this.statusText = this.add.text(16, 58, '', {
       color: '#ffffff',
       fontFamily: 'monospace',
       fontSize: '18px',
@@ -74,10 +83,19 @@ export class ArenaScene extends Phaser.Scene {
       selectedWeapon,
       longswordAttack,
       projectiles,
+      slow,
     } = this.state;
 
     this.graphics.clear();
-    this.graphics.lineStyle(2, ARENA_BORDER_COLOR, 1);
+    if (slow.active) {
+      this.graphics.fillStyle(SLOW_COLOR, 0.1);
+      this.graphics.fillRect(0, 0, ARENA_WIDTH, ARENA_HEIGHT);
+    }
+    this.graphics.lineStyle(
+      2,
+      slow.active ? SLOW_COLOR : ARENA_BORDER_COLOR,
+      1,
+    );
     this.graphics.strokeRect(1, 1, ARENA_WIDTH - 2, ARENA_HEIGHT - 2);
 
     if (longswordAttack.activeFramesRemaining > 0) {
@@ -135,9 +153,36 @@ export class ArenaScene extends Phaser.Scene {
       player.y + displayedAim.aimY * (PLAYER_RADIUS + 28),
     );
 
-    this.hitCountText.setText(
-      `weapon: ${selectedWeapon}\n${WEAPON_SLOT_HINT}\nhitCount: ${dummy.hitCount}`,
+    this.renderResourceBar(16, 16, player.health, HEALTH_COLOR);
+    this.renderResourceBar(16, 36, player.mana, MANA_COLOR);
+
+    this.statusText.setText(
+      `HP ${formatResource(player.health)} | MP ${formatResource(player.mana)}\n` +
+        `weapon: ${selectedWeapon}\n${WEAPON_SLOT_HINT}\n${SLOW_HINT}\n` +
+        `time: ${slow.active ? `SLOW x${SLOW_WORLD_TIME_SCALE}` : 'normal'}\n` +
+        `hitCount: ${dummy.hitCount}`,
     );
+  }
+
+  private renderResourceBar(
+    x: number,
+    y: number,
+    resource: ResourceState,
+    color: number,
+  ): void {
+    const ratio = resource.current / resource.maximum;
+
+    this.graphics.fillStyle(RESOURCE_BACKGROUND_COLOR, 0.9);
+    this.graphics.fillRect(x, y, RESOURCE_BAR_WIDTH, RESOURCE_BAR_HEIGHT);
+    this.graphics.fillStyle(color, 1);
+    this.graphics.fillRect(
+      x,
+      y,
+      RESOURCE_BAR_WIDTH * ratio,
+      RESOURCE_BAR_HEIGHT,
+    );
+    this.graphics.lineStyle(1, 0xffffff, 0.5);
+    this.graphics.strokeRect(x, y, RESOURCE_BAR_WIDTH, RESOURCE_BAR_HEIGHT);
   }
 
   private renderProjectile(projectile: ProjectileState): void {
@@ -178,4 +223,8 @@ export class ArenaScene extends Phaser.Scene {
       MAGIC_PROJECTILE_RADIUS,
     );
   }
+}
+
+function formatResource(resource: ResourceState): string {
+  return `${Math.ceil(resource.current)}/${resource.maximum}`;
 }

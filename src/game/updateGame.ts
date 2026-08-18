@@ -8,15 +8,16 @@ import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
   BOW_COOLDOWN_FRAMES,
-  DUMMY_RADIUS,
-  HIT_FLASH_FRAMES,
   HIT_STOP_FRAMES,
   LONGSWORD_ACTIVE_FRAMES,
   LONGSWORD_COOLDOWN_FRAMES,
+  LONGSWORD_DAMAGE,
   MAGIC_COOLDOWN_FRAMES,
   PLAYER_MOVE_SPEED,
   PLAYER_RADIUS,
 } from '../content/tuning';
+import { damageEnemy, getEnemyRadius } from './enemyState';
+import { updateEnemies } from './enemies';
 import type { GameState, WeaponId } from './GameState';
 import { longswordIntersectsCircle } from './longsword';
 import {
@@ -25,6 +26,12 @@ import {
   updateProjectiles,
 } from './projectiles';
 import { updateSlow } from './slow';
+import {
+  resetTeleportCooldown,
+  tickTeleportCooldown,
+  tryTeleport,
+  updateTeleportDestination,
+} from './teleport';
 
 const PLAYTEST_WEAPON_SLOTS: Record<WeaponSlotId, WeaponId> = {
   0: 'longsword',
@@ -43,18 +50,26 @@ export function updateGame(
   updateSelectedWeapon(state, input.weaponSlotPressed);
   const worldTimeScale = updateSlow(state, input.slowHeld, step.dt);
 
+  // Capture the start-of-tick state so the final remaining frame still freezes
+  // the actor even though its timer reaches zero during this update.
   const playerIsHitStopped = state.player.hitStopFramesRemaining > 0;
-  const dummyIsHitStopped = state.dummy.hitStopFramesRemaining > 0;
-
-  tickHitStopTimers(state, worldTimeScale);
-
-  if (!dummyIsHitStopped) {
-    tickDummyTimers(state, worldTimeScale);
+  tickPlayerHitStop(state);
+  if (!playerIsHitStopped) {
+    tickPlayerHitFlash(state);
   }
+
+  updateEnemies(state, step.dt, worldTimeScale);
 
   if (!playerIsHitStopped) {
     tickWeaponAttackTimers(state);
+    tickTeleportCooldown(state);
     updatePlayer(state, input, step.dt);
+    updateTeleportDestination(
+      state,
+      input.aimTargetX,
+      input.aimTargetY,
+    );
+    tryTeleport(state, input.teleportPressed);
     updateWeaponAttacks(state, input);
   }
 
@@ -62,7 +77,7 @@ export function updateGame(
     state,
     input.aimTargetX,
     input.aimTargetY,
-    step.dt * worldTimeScale,
+    step.dt,
     worldTimeScale,
   );
 }
@@ -76,17 +91,10 @@ function updateSelectedWeapon(
   }
 }
 
-function tickHitStopTimers(
-  state: GameState,
-  worldTimeScale: number,
-): void {
+function tickPlayerHitStop(state: GameState): void {
   state.player.hitStopFramesRemaining = Math.max(
     0,
     state.player.hitStopFramesRemaining - 1,
-  );
-  state.dummy.hitStopFramesRemaining = Math.max(
-    0,
-    state.dummy.hitStopFramesRemaining - worldTimeScale,
   );
 }
 
@@ -109,10 +117,10 @@ function tickWeaponAttackTimers(state: GameState): void {
   );
 }
 
-function tickDummyTimers(state: GameState, worldTimeScale: number): void {
-  state.dummy.hitFlashFramesRemaining = Math.max(
+function tickPlayerHitFlash(state: GameState): void {
+  state.player.hitFlashFramesRemaining = Math.max(
     0,
-    state.dummy.hitFlashFramesRemaining - worldTimeScale,
+    state.player.hitFlashFramesRemaining - 1,
   );
 }
 
@@ -132,7 +140,7 @@ function updatePlayer(
     ARENA_HEIGHT,
   );
 
-  moveOutsideDummy(state, nextX, nextY);
+  moveOutsideEnemies(state, nextX, nextY);
 
   const aim = normalize(
     input.aimTargetX - state.player.x,
@@ -156,37 +164,42 @@ function clampToArena(value: number, radius: number, size: number): number {
   return Math.min(size - radius, Math.max(radius, value));
 }
 
-function moveOutsideDummy(
+function moveOutsideEnemies(
   state: GameState,
   requestedX: number,
   requestedY: number,
 ): void {
-  const dx = requestedX - state.dummy.x;
-  const dy = requestedY - state.dummy.y;
-  const distanceSquared = dx * dx + dy * dy;
-  const minimumDistance = PLAYER_RADIUS + DUMMY_RADIUS;
+  state.player.x = requestedX;
+  state.player.y = requestedY;
 
-  if (distanceSquared >= minimumDistance * minimumDistance) {
-    state.player.x = requestedX;
-    state.player.y = requestedY;
-    return;
+  for (const enemy of state.enemies) {
+    if (enemy.action === 'dead') {
+      continue;
+    }
+
+    const dx = state.player.x - enemy.x;
+    const dy = state.player.y - enemy.y;
+    const distanceSquared = dx * dx + dy * dy;
+    const minimumDistance = PLAYER_RADIUS + getEnemyRadius(enemy);
+    if (
+      distanceSquared === 0 ||
+      distanceSquared >= minimumDistance * minimumDistance
+    ) {
+      continue;
+    }
+
+    const scale = minimumDistance / Math.sqrt(distanceSquared);
+    state.player.x = clampToArena(
+      enemy.x + dx * scale,
+      PLAYER_RADIUS,
+      ARENA_WIDTH,
+    );
+    state.player.y = clampToArena(
+      enemy.y + dy * scale,
+      PLAYER_RADIUS,
+      ARENA_HEIGHT,
+    );
   }
-
-  if (distanceSquared === 0) {
-    return;
-  }
-
-  const scale = minimumDistance / Math.sqrt(distanceSquared);
-  state.player.x = clampToArena(
-    state.dummy.x + dx * scale,
-    PLAYER_RADIUS,
-    ARENA_WIDTH,
-  );
-  state.player.y = clampToArena(
-    state.dummy.y + dy * scale,
-    PLAYER_RADIUS,
-    ARENA_HEIGHT,
-  );
 }
 
 function updateWeaponAttacks(state: GameState, input: InputFrame): void {
@@ -196,21 +209,27 @@ function updateWeaponAttacks(state: GameState, input: InputFrame): void {
     return;
   }
 
-  if (
-    state.selectedWeapon === 'bow' &&
-    state.bowAttack.cooldownFramesRemaining === 0
-  ) {
-    spawnArrow(state);
-    state.bowAttack.cooldownFramesRemaining = BOW_COOLDOWN_FRAMES;
+  switch (state.selectedWeapon) {
+    case 'longsword':
+      return;
+    case 'bow':
+      if (state.bowAttack.cooldownFramesRemaining === 0) {
+        spawnArrow(state);
+        state.bowAttack.cooldownFramesRemaining = BOW_COOLDOWN_FRAMES;
+      }
+      return;
+    case 'magic':
+      if (
+        state.magicAttack.cooldownFramesRemaining === 0 &&
+        spawnMagicProjectile(state)
+      ) {
+        state.magicAttack.cooldownFramesRemaining = MAGIC_COOLDOWN_FRAMES;
+      }
+      return;
   }
 
-  if (
-    state.selectedWeapon === 'magic' &&
-    state.magicAttack.cooldownFramesRemaining === 0 &&
-    spawnMagicProjectile(state)
-  ) {
-    state.magicAttack.cooldownFramesRemaining = MAGIC_COOLDOWN_FRAMES;
-  }
+  const exhaustiveWeapon: never = state.selectedWeapon;
+  void exhaustiveWeapon;
 }
 
 function updateLongswordAttack(state: GameState, input: InputFrame): void {
@@ -223,27 +242,42 @@ function updateLongswordAttack(state: GameState, input: InputFrame): void {
   ) {
     attack.activeFramesRemaining = LONGSWORD_ACTIVE_FRAMES;
     attack.cooldownFramesRemaining = LONGSWORD_COOLDOWN_FRAMES;
-    attack.hitDummy = false;
+    attack.hitEnemyIds = [];
     attack.aimX = state.player.aimX;
     attack.aimY = state.player.aimY;
   }
 
-  if (
-    attack.activeFramesRemaining > 0 &&
-    !attack.hitDummy &&
-    longswordIntersectsCircle(
-      state.player.x,
-      state.player.y,
-      attack,
-      state.dummy.x,
-      state.dummy.y,
-      DUMMY_RADIUS,
-    )
-  ) {
-    attack.hitDummy = true;
-    state.dummy.hitCount += 1;
-    state.dummy.hitFlashFramesRemaining = HIT_FLASH_FRAMES;
-    state.player.hitStopFramesRemaining = HIT_STOP_FRAMES;
-    state.dummy.hitStopFramesRemaining = HIT_STOP_FRAMES;
+  if (attack.activeFramesRemaining === 0) {
+    return;
+  }
+
+  let hitEnemy = false;
+  for (const enemy of state.enemies) {
+    if (
+      enemy.action === 'dead' ||
+      attack.hitEnemyIds.includes(enemy.id) ||
+      !longswordIntersectsCircle(
+        state.player.x,
+        state.player.y,
+        attack,
+        enemy.x,
+        enemy.y,
+        getEnemyRadius(enemy),
+      )
+    ) {
+      continue;
+    }
+
+    attack.hitEnemyIds.push(enemy.id);
+    damageEnemy(enemy, LONGSWORD_DAMAGE);
+    hitEnemy = true;
+  }
+
+  if (hitEnemy) {
+    state.player.hitStopFramesRemaining = Math.max(
+      state.player.hitStopFramesRemaining,
+      HIT_STOP_FRAMES,
+    );
+    resetTeleportCooldown(state);
   }
 }

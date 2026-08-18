@@ -1,29 +1,63 @@
 import {
+  ARCHER_ATTACK_DAMAGE,
+  ARCHER_RADIUS,
   ARENA_HEIGHT,
   ARENA_WIDTH,
+  BOW_DAMAGE,
   BOW_PROJECTILE_LIFETIME_FRAMES,
   BOW_PROJECTILE_RADIUS,
   BOW_PROJECTILE_SPEED,
-  DUMMY_RADIUS,
-  HIT_FLASH_FRAMES,
-  HIT_STOP_FRAMES,
+  MAGIC_DAMAGE,
   MAGIC_PROJECTILE_LIFETIME_FRAMES,
   MAGIC_PROJECTILE_RADIUS,
   MAGIC_PROJECTILE_SPEED,
   MAGIC_TURN_SPEED_RADIANS_PER_SECOND,
   PLAYER_RADIUS,
 } from '../content/tuning';
+import { damageEnemy, getEnemyRadius } from './enemyState';
 import type {
+  ArcherState,
+  EnemyState,
   GameState,
   ProjectileKind,
+  ProjectileOwner,
   ProjectileState,
 } from './GameState';
+import { damagePlayer } from './playerDamage';
+import { resetTeleportCooldown } from './teleport';
 
 export function spawnArrow(state: GameState): void {
   state.projectiles.push(
     createProjectile(
       state,
+      'player',
       'arrow',
+      state.player.x,
+      state.player.y,
+      state.player.aimX,
+      state.player.aimY,
+      PLAYER_RADIUS,
+      BOW_PROJECTILE_RADIUS,
+      BOW_PROJECTILE_SPEED,
+      BOW_PROJECTILE_LIFETIME_FRAMES,
+    ),
+  );
+}
+
+export function spawnEnemyArrow(
+  state: GameState,
+  archer: ArcherState,
+): void {
+  state.projectiles.push(
+    createProjectile(
+      state,
+      'enemy',
+      'arrow',
+      archer.x,
+      archer.y,
+      archer.aimX,
+      archer.aimY,
+      ARCHER_RADIUS,
       BOW_PROJECTILE_RADIUS,
       BOW_PROJECTILE_SPEED,
       BOW_PROJECTILE_LIFETIME_FRAMES,
@@ -32,14 +66,25 @@ export function spawnArrow(state: GameState): void {
 }
 
 export function spawnMagicProjectile(state: GameState): boolean {
-  if (state.projectiles.some((projectile) => projectile.kind === 'magic')) {
+  if (
+    state.projectiles.some(
+      (projectile) =>
+        projectile.owner === 'player' && projectile.kind === 'magic',
+    )
+  ) {
     return false;
   }
 
   state.projectiles.push(
     createProjectile(
       state,
+      'player',
       'magic',
+      state.player.x,
+      state.player.y,
+      state.player.aimX,
+      state.player.aimY,
+      PLAYER_RADIUS,
       MAGIC_PROJECTILE_RADIUS,
       MAGIC_PROJECTILE_SPEED,
       MAGIC_PROJECTILE_LIFETIME_FRAMES,
@@ -53,26 +98,32 @@ export function updateProjectiles(
   aimTargetX: number,
   aimTargetY: number,
   dt: number,
-  frameDelta: number,
+  worldTimeScale: number,
 ): void {
+  const worldDt = dt * worldTimeScale;
   const survivingProjectiles: ProjectileState[] = [];
 
   for (const projectile of state.projectiles) {
-    if (projectile.kind === 'magic') {
-      steerMagicProjectile(projectile, aimTargetX, aimTargetY, dt);
+    if (projectile.owner === 'player' && projectile.kind === 'magic') {
+      steerMagicProjectile(projectile, aimTargetX, aimTargetY, worldDt);
     }
 
-    projectile.x += projectile.velocityX * dt;
-    projectile.y += projectile.velocityY * dt;
-    projectile.framesRemaining -= frameDelta;
+    projectile.x += projectile.velocityX * worldDt;
+    projectile.y += projectile.velocityY * worldDt;
+    projectile.framesRemaining -= worldTimeScale;
 
-    if (projectileIntersectsDummy(state, projectile)) {
-      state.dummy.hitCount += 1;
-      state.dummy.hitFlashFramesRemaining = HIT_FLASH_FRAMES;
-      state.dummy.hitStopFramesRemaining = Math.max(
-        state.dummy.hitStopFramesRemaining,
-        HIT_STOP_FRAMES,
-      );
+    if (projectile.owner === 'player') {
+      const enemy = findIntersectedEnemy(state, projectile);
+      if (enemy !== null) {
+        damageEnemy(
+          enemy,
+          projectile.kind === 'arrow' ? BOW_DAMAGE : MAGIC_DAMAGE,
+        );
+        resetTeleportCooldown(state);
+        continue;
+      }
+    } else if (projectileIntersectsPlayer(state, projectile)) {
+      damagePlayer(state, ARCHER_ATTACK_DAMAGE);
       continue;
     }
 
@@ -88,26 +139,36 @@ export function updateProjectiles(
 }
 
 export function getProjectileRadius(kind: ProjectileKind): number {
-  return kind === 'arrow'
-    ? BOW_PROJECTILE_RADIUS
-    : MAGIC_PROJECTILE_RADIUS;
+  switch (kind) {
+    case 'arrow':
+      return BOW_PROJECTILE_RADIUS;
+    case 'magic':
+      return MAGIC_PROJECTILE_RADIUS;
+  }
 }
 
 function createProjectile(
   state: GameState,
+  owner: ProjectileOwner,
   kind: ProjectileKind,
-  radius: number,
+  originX: number,
+  originY: number,
+  aimX: number,
+  aimY: number,
+  originRadius: number,
+  projectileRadius: number,
   speed: number,
   lifetimeFrames: number,
 ): ProjectileState {
-  const spawnDistance = PLAYER_RADIUS + radius + 2;
+  const spawnDistance = originRadius + projectileRadius + 2;
   const projectile = {
     id: state.nextProjectileId,
+    owner,
     kind,
-    x: state.player.x + state.player.aimX * spawnDistance,
-    y: state.player.y + state.player.aimY * spawnDistance,
-    velocityX: state.player.aimX * speed,
-    velocityY: state.player.aimY * speed,
+    x: originX + aimX * spawnDistance,
+    y: originY + aimY * spawnDistance,
+    velocityX: aimX * speed,
+    velocityY: aimY * speed,
     framesRemaining: lifetimeFrames,
   };
 
@@ -153,14 +214,47 @@ function normalizeAngle(angle: number): number {
   return normalized;
 }
 
-function projectileIntersectsDummy(
+function findIntersectedEnemy(
+  state: GameState,
+  projectile: ProjectileState,
+): EnemyState | null {
+  for (const enemy of state.enemies) {
+    if (
+      enemy.action !== 'dead' &&
+      projectileIntersectsCircle(
+        projectile,
+        enemy.x,
+        enemy.y,
+        getEnemyRadius(enemy),
+      )
+    ) {
+      return enemy;
+    }
+  }
+  return null;
+}
+
+function projectileIntersectsPlayer(
   state: GameState,
   projectile: ProjectileState,
 ): boolean {
-  const distanceX = state.dummy.x - projectile.x;
-  const distanceY = state.dummy.y - projectile.y;
-  const collisionRadius =
-    DUMMY_RADIUS + getProjectileRadius(projectile.kind);
+  return projectileIntersectsCircle(
+    projectile,
+    state.player.x,
+    state.player.y,
+    PLAYER_RADIUS,
+  );
+}
+
+function projectileIntersectsCircle(
+  projectile: ProjectileState,
+  x: number,
+  y: number,
+  targetRadius: number,
+): boolean {
+  const distanceX = x - projectile.x;
+  const distanceY = y - projectile.y;
+  const collisionRadius = targetRadius + getProjectileRadius(projectile.kind);
 
   return (
     distanceX * distanceX + distanceY * distanceY <=

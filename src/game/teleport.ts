@@ -1,0 +1,152 @@
+import {
+  ARENA_HEIGHT,
+  ARENA_WIDTH,
+  PLAYER_RADIUS,
+  TELEPORT_COOLDOWN_FRAMES,
+  TELEPORT_MAX_DISTANCE,
+} from '../content/tuning';
+import { getEnemyRadius } from './enemyState';
+import type { GameState } from './GameState';
+
+interface Position {
+  x: number;
+  y: number;
+}
+
+export interface CircleObstacle extends Position {
+  radius: number;
+}
+
+export function updateTeleportDestination(
+  state: GameState,
+  targetX: number,
+  targetY: number,
+): void {
+  const obstacles = state.enemies
+    .filter((enemy) => enemy.action !== 'dead')
+    .map((enemy) => ({
+      x: enemy.x,
+      y: enemy.y,
+      radius: getEnemyRadius(enemy),
+    }));
+  const destination = getTeleportDestination(
+    state.player.x,
+    state.player.y,
+    targetX,
+    targetY,
+    obstacles,
+  );
+
+  state.teleport.destinationX = destination.x;
+  state.teleport.destinationY = destination.y;
+}
+
+export function tryTeleport(
+  state: GameState,
+  teleportPressed: boolean,
+): boolean {
+  if (!teleportPressed || state.teleport.cooldownFramesRemaining > 0) {
+    return false;
+  }
+
+  const destination = state.teleport;
+  if (
+    destination.destinationX === state.player.x &&
+    destination.destinationY === state.player.y
+  ) {
+    return false;
+  }
+
+  state.player.x = destination.destinationX;
+  state.player.y = destination.destinationY;
+  state.teleport.cooldownFramesRemaining = TELEPORT_COOLDOWN_FRAMES;
+  return true;
+}
+
+export function tickTeleportCooldown(state: GameState): void {
+  state.teleport.cooldownFramesRemaining = Math.max(
+    0,
+    state.teleport.cooldownFramesRemaining - 1,
+  );
+}
+
+export function resetTeleportCooldown(state: GameState): void {
+  state.teleport.cooldownFramesRemaining = 0;
+}
+
+export function getTeleportDestination(
+  playerX: number,
+  playerY: number,
+  targetX: number,
+  targetY: number,
+  obstacles: readonly CircleObstacle[],
+): Position {
+  const targetOffsetX = targetX - playerX;
+  const targetOffsetY = targetY - playerY;
+  const targetDistance = Math.hypot(targetOffsetX, targetOffsetY);
+
+  if (targetDistance === 0) {
+    return { x: playerX, y: playerY };
+  }
+
+  const distance = Math.min(targetDistance, TELEPORT_MAX_DISTANCE);
+  const directionX = targetOffsetX / targetDistance;
+  const directionY = targetOffsetY / targetDistance;
+  let destination = {
+    x: clampToArena(
+      playerX + directionX * distance,
+      PLAYER_RADIUS,
+      ARENA_WIDTH,
+    ),
+    y: clampToArena(
+      playerY + directionY * distance,
+      PLAYER_RADIUS,
+      ARENA_HEIGHT,
+    ),
+  };
+
+  for (const obstacle of obstacles) {
+    destination = moveOutsideObstacle(
+      playerX,
+      playerY,
+      destination,
+      obstacle,
+    );
+  }
+  return destination;
+}
+
+function moveOutsideObstacle(
+  playerX: number,
+  playerY: number,
+  requested: Position,
+  obstacle: CircleObstacle,
+): Position {
+  const destinationOffsetX = requested.x - obstacle.x;
+  const destinationOffsetY = requested.y - obstacle.y;
+  const minimumDistance = PLAYER_RADIUS + obstacle.radius;
+
+  if (
+    destinationOffsetX * destinationOffsetX +
+      destinationOffsetY * destinationOffsetY >=
+    minimumDistance * minimumDistance
+  ) {
+    return requested;
+  }
+
+  const playerOffsetX = playerX - obstacle.x;
+  const playerOffsetY = playerY - obstacle.y;
+  const playerDistance = Math.hypot(playerOffsetX, playerOffsetY);
+  if (playerDistance === 0) {
+    return requested;
+  }
+
+  return {
+    x: obstacle.x + (playerOffsetX / playerDistance) * minimumDistance,
+    y: obstacle.y + (playerOffsetY / playerDistance) * minimumDistance,
+  };
+}
+
+function clampToArena(value: number, radius: number, size: number): number {
+  return Math.min(size - radius, Math.max(radius, value));
+}

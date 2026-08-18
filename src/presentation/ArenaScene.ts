@@ -2,20 +2,28 @@ import Phaser from 'phaser';
 
 import { GameClock } from '../core/GameClock';
 import {
+  ARCHER_RADIUS,
+  ARCHER_RESPAWN_FRAMES,
+  ARCHER_WINDUP_FRAMES,
   ARENA_HEIGHT,
   ARENA_WIDTH,
   BOW_PROJECTILE_RADIUS,
-  DUMMY_RADIUS,
   LONGSWORD_REACH,
   LONGSWORD_SWING_RADIANS,
   MAGIC_PROJECTILE_RADIUS,
   PLAYER_RADIUS,
   SLOW_WORLD_TIME_SCALE,
+  SWORDSMAN_ATTACK_REACH,
+  SWORDSMAN_RADIUS,
+  SWORDSMAN_RESPAWN_FRAMES,
 } from '../content/tuning';
 import {
   createInitialGameState,
+  type ArcherState,
+  type EnemyState,
   type ProjectileState,
   type ResourceState,
+  type SwordsmanState,
 } from '../game/GameState';
 import {
   getLongswordSwingAngle,
@@ -24,19 +32,29 @@ import {
 import { updateGame } from '../game/updateGame';
 import {
   PhaserInputSource,
-  SLOW_HINT,
   WEAPON_SLOT_HINT,
 } from './PhaserInputSource';
+import { SkillBindings } from './SkillBindings';
+import { SkillLoadoutUi } from './SkillLoadoutUi';
 
 const PLAYER_COLOR = 0x4f7cff;
-const DUMMY_COLOR = 0xd65f5f;
-const DUMMY_HIT_COLOR = 0xffffff;
+const PLAYER_HIT_COLOR = 0xffffff;
+const SWORDSMAN_COLOR = 0xd65f5f;
+const SWORDSMAN_HIT_COLOR = 0xffffff;
+const SWORDSMAN_WINDUP_COLOR = 0xff9b73;
+const SWORDSMAN_ATTACK_COLOR = 0xff4f4f;
+const ARCHER_COLOR = 0xe0a44f;
+const ARCHER_HIT_COLOR = 0xffffff;
+const ARCHER_TELEGRAPH_COLOR = 0xffc46b;
+const ENEMY_ARROW_COLOR = 0xff806b;
 const AIM_COLOR = 0xdde6ff;
 const LONGSWORD_COLOR = 0x8ec5ff;
 const ARROW_COLOR = 0xffd166;
 const MAGIC_COLOR = 0x75f4c1;
 const ARENA_BORDER_COLOR = 0x34405a;
 const SLOW_COLOR = 0x8a9dff;
+const TELEPORT_READY_COLOR = 0xb8c4ff;
+const TELEPORT_COOLDOWN_COLOR = 0x59627f;
 const RESOURCE_BACKGROUND_COLOR = 0x151a26;
 const HEALTH_COLOR = 0x65d17a;
 const MANA_COLOR = 0x598cff;
@@ -49,6 +67,8 @@ export class ArenaScene extends Phaser.Scene {
   private graphics!: Phaser.GameObjects.Graphics;
   private statusText!: Phaser.GameObjects.Text;
   private inputSource!: PhaserInputSource;
+  private skillLoadoutUi!: SkillLoadoutUi;
+  private readonly skillBindings = new SkillBindings();
 
   constructor() {
     super('arena');
@@ -61,8 +81,14 @@ export class ArenaScene extends Phaser.Scene {
       fontFamily: 'monospace',
       fontSize: '18px',
     });
-    this.inputSource = new PhaserInputSource(this);
+    this.inputSource = new PhaserInputSource(this, this.skillBindings);
+    this.skillLoadoutUi = new SkillLoadoutUi(
+      this,
+      this.skillBindings,
+      this.inputSource,
+    );
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.skillLoadoutUi.destroy();
       this.inputSource.destroy();
     });
 
@@ -79,11 +105,12 @@ export class ArenaScene extends Phaser.Scene {
   private renderState(): void {
     const {
       player,
-      dummy,
+      enemies,
       selectedWeapon,
       longswordAttack,
       projectiles,
       slow,
+      teleport,
     } = this.state;
 
     this.graphics.clear();
@@ -97,6 +124,30 @@ export class ArenaScene extends Phaser.Scene {
       1,
     );
     this.graphics.strokeRect(1, 1, ARENA_WIDTH - 2, ARENA_HEIGHT - 2);
+
+    const teleportReady = teleport.cooldownFramesRemaining === 0;
+    const teleportColor = teleportReady
+      ? TELEPORT_READY_COLOR
+      : TELEPORT_COOLDOWN_COLOR;
+    this.graphics.lineStyle(1, teleportColor, 0.28);
+    this.graphics.lineBetween(
+      player.x,
+      player.y,
+      teleport.destinationX,
+      teleport.destinationY,
+    );
+    this.graphics.fillStyle(teleportColor, teleportReady ? 0.14 : 0.05);
+    this.graphics.fillCircle(
+      teleport.destinationX,
+      teleport.destinationY,
+      PLAYER_RADIUS,
+    );
+    this.graphics.lineStyle(2, teleportColor, 0.75);
+    this.graphics.strokeCircle(
+      teleport.destinationX,
+      teleport.destinationY,
+      PLAYER_RADIUS,
+    );
 
     if (longswordAttack.activeFramesRemaining > 0) {
       const aimAngle = Math.atan2(
@@ -132,13 +183,14 @@ export class ArenaScene extends Phaser.Scene {
       this.renderProjectile(projectile);
     }
 
+    for (const enemy of enemies) {
+      this.renderEnemy(enemy);
+    }
+
     this.graphics.fillStyle(
-      dummy.hitFlashFramesRemaining > 0 ? DUMMY_HIT_COLOR : DUMMY_COLOR,
+      player.hitFlashFramesRemaining > 0 ? PLAYER_HIT_COLOR : PLAYER_COLOR,
       1,
     );
-    this.graphics.fillCircle(dummy.x, dummy.y, DUMMY_RADIUS);
-
-    this.graphics.fillStyle(PLAYER_COLOR, 1);
     this.graphics.fillCircle(player.x, player.y, PLAYER_RADIUS);
 
     const displayedAim =
@@ -156,12 +208,188 @@ export class ArenaScene extends Phaser.Scene {
     this.renderResourceBar(16, 16, player.health, HEALTH_COLOR);
     this.renderResourceBar(16, 36, player.mana, MANA_COLOR);
 
+    const enemyStatus = enemies
+      .map(
+        (enemy) =>
+          `${enemy.kind}: ${enemy.action} ${Math.ceil(enemy.health.current)}/${enemy.health.maximum}`,
+      )
+      .join('\n');
     this.statusText.setText(
       `HP ${formatResource(player.health)} | MP ${formatResource(player.mana)}\n` +
-        `weapon: ${selectedWeapon}\n${WEAPON_SLOT_HINT}\n${SLOW_HINT}\n` +
+        `weapon: ${selectedWeapon}\n${WEAPON_SLOT_HINT}\n` +
         `time: ${slow.active ? `SLOW x${SLOW_WORLD_TIME_SCALE}` : 'normal'}\n` +
-        `hitCount: ${dummy.hitCount}`,
+        `${enemyStatus}\n` +
+        `defeats: ${player.defeatCount}`,
     );
+    this.skillLoadoutUi.render(
+      slow.active,
+      teleport.cooldownFramesRemaining,
+    );
+  }
+
+  private renderEnemy(enemy: EnemyState): void {
+    switch (enemy.kind) {
+      case 'swordsman':
+        this.renderSwordsman(enemy);
+        return;
+      case 'archer':
+        this.renderArcher(enemy);
+        return;
+    }
+  }
+
+  private renderSwordsman(swordsman: SwordsmanState): void {
+
+    if (swordsman.action === 'dead') {
+      this.renderRespawn(
+        swordsman,
+        SWORDSMAN_RADIUS,
+        SWORDSMAN_RESPAWN_FRAMES,
+        SWORDSMAN_COLOR,
+      );
+      return;
+    }
+
+    const attackEndX =
+      swordsman.x + swordsman.aimX * SWORDSMAN_ATTACK_REACH;
+    const attackEndY =
+      swordsman.y + swordsman.aimY * SWORDSMAN_ATTACK_REACH;
+    if (swordsman.action === 'windup') {
+      this.graphics.lineStyle(8, SWORDSMAN_WINDUP_COLOR, 0.28);
+      this.graphics.lineBetween(
+        swordsman.x,
+        swordsman.y,
+        attackEndX,
+        attackEndY,
+      );
+    } else if (swordsman.action === 'attacking') {
+      this.graphics.lineStyle(10, SWORDSMAN_ATTACK_COLOR, 0.9);
+      this.graphics.lineBetween(
+        swordsman.x,
+        swordsman.y,
+        attackEndX,
+        attackEndY,
+      );
+    }
+
+    this.graphics.fillStyle(
+      swordsman.hitFlashFramesRemaining > 0
+        ? SWORDSMAN_HIT_COLOR
+        : SWORDSMAN_COLOR,
+      1,
+    );
+    this.graphics.fillCircle(
+      swordsman.x,
+      swordsman.y,
+      SWORDSMAN_RADIUS,
+    );
+    this.graphics.lineStyle(4, SWORDSMAN_WINDUP_COLOR, 1);
+    this.graphics.lineBetween(
+      swordsman.x,
+      swordsman.y,
+      swordsman.x + swordsman.aimX * (SWORDSMAN_RADIUS + 12),
+      swordsman.y + swordsman.aimY * (SWORDSMAN_RADIUS + 12),
+    );
+
+    this.renderEnemyHealthBar(swordsman, SWORDSMAN_RADIUS, SWORDSMAN_COLOR);
+  }
+
+  private renderArcher(archer: ArcherState): void {
+    if (archer.action === 'dead') {
+      this.renderRespawn(
+        archer,
+        ARCHER_RADIUS,
+        ARCHER_RESPAWN_FRAMES,
+        ARCHER_COLOR,
+      );
+      return;
+    }
+
+    if (archer.action === 'windup') {
+      this.renderArcherTelegraph(archer);
+    }
+
+    this.graphics.fillStyle(
+      archer.hitFlashFramesRemaining > 0 ? ARCHER_HIT_COLOR : ARCHER_COLOR,
+      1,
+    );
+    this.graphics.fillCircle(archer.x, archer.y, ARCHER_RADIUS);
+
+    const perpendicularX = -archer.aimY;
+    const perpendicularY = archer.aimX;
+    this.graphics.lineStyle(3, ARCHER_TELEGRAPH_COLOR, 1);
+    this.graphics.lineBetween(
+      archer.x + perpendicularX * 12,
+      archer.y + perpendicularY * 12,
+      archer.x - perpendicularX * 12,
+      archer.y - perpendicularY * 12,
+    );
+    this.graphics.lineBetween(
+      archer.x,
+      archer.y,
+      archer.x + archer.aimX * (ARCHER_RADIUS + 14),
+      archer.y + archer.aimY * (ARCHER_RADIUS + 14),
+    );
+    this.renderEnemyHealthBar(archer, ARCHER_RADIUS, ARCHER_COLOR);
+  }
+
+  private renderArcherTelegraph(archer: ArcherState): void {
+    const distance = distanceToArenaEdge(
+      archer.x,
+      archer.y,
+      archer.aimX,
+      archer.aimY,
+    );
+    const progress =
+      1 - archer.actionFramesRemaining / ARCHER_WINDUP_FRAMES;
+    const alpha = 0.12 + progress * 0.28;
+
+    this.graphics.lineStyle(2, ARCHER_TELEGRAPH_COLOR, alpha);
+    this.graphics.lineBetween(
+      archer.x,
+      archer.y,
+      archer.x + archer.aimX * distance,
+      archer.y + archer.aimY * distance,
+    );
+
+    for (let offset = 54; offset < distance; offset += 54) {
+      const x = archer.x + archer.aimX * offset;
+      const y = archer.y + archer.aimY * offset;
+      this.graphics.lineStyle(3, ARCHER_TELEGRAPH_COLOR, alpha);
+      this.graphics.lineBetween(
+        x - archer.aimX * 10,
+        y - archer.aimY * 10,
+        x + archer.aimX * 5,
+        y + archer.aimY * 5,
+      );
+    }
+  }
+
+  private renderEnemyHealthBar(
+    enemy: EnemyState,
+    radius: number,
+    color: number,
+  ): void {
+    const barWidth = 64;
+    const barHeight = 6;
+    const barX = enemy.x - barWidth / 2;
+    const barY = enemy.y - radius - 14;
+    const healthRatio = enemy.health.current / enemy.health.maximum;
+    this.graphics.fillStyle(RESOURCE_BACKGROUND_COLOR, 0.9);
+    this.graphics.fillRect(barX, barY, barWidth, barHeight);
+    this.graphics.fillStyle(color, 1);
+    this.graphics.fillRect(barX, barY, barWidth * healthRatio, barHeight);
+  }
+
+  private renderRespawn(
+    enemy: EnemyState,
+    radius: number,
+    respawnFrames: number,
+    color: number,
+  ): void {
+    const respawnRatio = enemy.actionFramesRemaining / respawnFrames;
+    this.graphics.lineStyle(3, color, 0.3);
+    this.graphics.strokeCircle(enemy.x, enemy.y, radius * respawnRatio);
   }
 
   private renderResourceBar(
@@ -186,43 +414,73 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private renderProjectile(projectile: ProjectileState): void {
-    if (projectile.kind === 'arrow') {
-      const speed = Math.hypot(
-        projectile.velocityX,
-        projectile.velocityY,
-      );
-      const directionX = projectile.velocityX / speed;
-      const directionY = projectile.velocityY / speed;
+    const kind = projectile.kind;
 
-      this.graphics.lineStyle(4, ARROW_COLOR, 1);
-      this.graphics.lineBetween(
-        projectile.x - directionX * 18,
-        projectile.y - directionY * 18,
-        projectile.x + directionX * 6,
-        projectile.y + directionY * 6,
-      );
-      this.graphics.fillStyle(ARROW_COLOR, 1);
-      this.graphics.fillCircle(
-        projectile.x,
-        projectile.y,
-        BOW_PROJECTILE_RADIUS,
-      );
-      return;
+    switch (kind) {
+      case 'arrow': {
+        const speed = Math.hypot(
+          projectile.velocityX,
+          projectile.velocityY,
+        );
+        const directionX = projectile.velocityX / speed;
+        const directionY = projectile.velocityY / speed;
+
+        const arrowColor =
+          projectile.owner === 'player' ? ARROW_COLOR : ENEMY_ARROW_COLOR;
+        this.graphics.lineStyle(4, arrowColor, 1);
+        this.graphics.lineBetween(
+          projectile.x - directionX * 18,
+          projectile.y - directionY * 18,
+          projectile.x + directionX * 6,
+          projectile.y + directionY * 6,
+        );
+        this.graphics.fillStyle(arrowColor, 1);
+        this.graphics.fillCircle(
+          projectile.x,
+          projectile.y,
+          BOW_PROJECTILE_RADIUS,
+        );
+        return;
+      }
+      case 'magic':
+        this.graphics.fillStyle(MAGIC_COLOR, 0.35);
+        this.graphics.fillCircle(
+          projectile.x,
+          projectile.y,
+          MAGIC_PROJECTILE_RADIUS + 5,
+        );
+        this.graphics.fillStyle(MAGIC_COLOR, 1);
+        this.graphics.fillCircle(
+          projectile.x,
+          projectile.y,
+          MAGIC_PROJECTILE_RADIUS,
+        );
+        return;
     }
 
-    this.graphics.fillStyle(MAGIC_COLOR, 0.35);
-    this.graphics.fillCircle(
-      projectile.x,
-      projectile.y,
-      MAGIC_PROJECTILE_RADIUS + 5,
-    );
-    this.graphics.fillStyle(MAGIC_COLOR, 1);
-    this.graphics.fillCircle(
-      projectile.x,
-      projectile.y,
-      MAGIC_PROJECTILE_RADIUS,
-    );
+    const exhaustiveKind: never = kind;
+    void exhaustiveKind;
   }
+}
+
+function distanceToArenaEdge(
+  x: number,
+  y: number,
+  directionX: number,
+  directionY: number,
+): number {
+  const distances: number[] = [];
+  if (directionX > 0) {
+    distances.push((ARENA_WIDTH - x) / directionX);
+  } else if (directionX < 0) {
+    distances.push(-x / directionX);
+  }
+  if (directionY > 0) {
+    distances.push((ARENA_HEIGHT - y) / directionY);
+  } else if (directionY < 0) {
+    distances.push(-y / directionY);
+  }
+  return distances.length > 0 ? Math.min(...distances) : 0;
 }
 
 function formatResource(resource: ResourceState): string {

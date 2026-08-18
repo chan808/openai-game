@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  DUMMY_RADIUS,
   LONGSWORD_ACTIVE_FRAMES,
   LONGSWORD_BLADE_RADIUS,
   LONGSWORD_REACH,
   LONGSWORD_SWING_RADIANS,
+  SWORDSMAN_RADIUS,
 } from '../content/tuning';
 import type { LongswordAttackState } from './GameState';
 import {
@@ -33,7 +33,7 @@ describe('longsword', () => {
     const middleFrame = (LONGSWORD_ACTIVE_FRAMES + 1) / 2;
     const attack = createAttack(middleFrame);
     const furthestHit =
-      LONGSWORD_REACH + DUMMY_RADIUS + LONGSWORD_BLADE_RADIUS;
+      LONGSWORD_REACH + SWORDSMAN_RADIUS + LONGSWORD_BLADE_RADIUS;
 
     expect(
       longswordIntersectsCircle(
@@ -42,7 +42,7 @@ describe('longsword', () => {
         attack,
         furthestHit,
         0,
-        DUMMY_RADIUS,
+        SWORDSMAN_RADIUS,
       ),
     ).toBe(true);
     expect(
@@ -52,7 +52,7 @@ describe('longsword', () => {
         attack,
         furthestHit + 0.1,
         0,
-        DUMMY_RADIUS,
+        SWORDSMAN_RADIUS,
       ),
     ).toBe(false);
   });
@@ -64,7 +64,7 @@ function createAttack(
   return {
     activeFramesRemaining,
     cooldownFramesRemaining: 0,
-    hitDummy: false,
+    hitEnemyIds: [],
     aimX: 1,
     aimY: 0,
   };

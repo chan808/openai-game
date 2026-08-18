@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
+  BOW_PROJECTILE_RADIUS,
   BOW_PROJECTILE_SPEED,
   HIT_STOP_FRAMES,
   MAGIC_PROJECTILE_SPEED,
+  SLOW_WORLD_TIME_SCALE,
 } from '../content/tuning';
 import { FIXED_STEP_SECONDS } from '../core/GameClock';
 import { createInitialGameState } from './GameState';
@@ -37,6 +39,31 @@ describe('projectiles', () => {
       startX + BOW_PROJECTILE_SPEED * FIXED_STEP_SECONDS,
     );
     expect(arrow.y).toBeCloseTo(ARENA_HEIGHT / 2);
+  });
+
+  it('uses one world scale for projectile movement and lifetime', () => {
+    const state = createInitialGameState();
+
+    spawnArrow(state);
+    const arrow = state.projectiles[0]!;
+    const startX = arrow.x;
+    const startFramesRemaining = arrow.framesRemaining;
+
+    updateProjectiles(
+      state,
+      ARENA_WIDTH,
+      ARENA_HEIGHT / 2,
+      FIXED_STEP_SECONDS,
+      SLOW_WORLD_TIME_SCALE,
+    );
+
+    expect(arrow.x).toBeCloseTo(
+      startX +
+        BOW_PROJECTILE_SPEED * FIXED_STEP_SECONDS * SLOW_WORLD_TIME_SCALE,
+    );
+    expect(arrow.framesRemaining).toBe(
+      startFramesRemaining - SLOW_WORLD_TIME_SCALE,
+    );
   });
 
   it('curves a slower magic projectile toward the current cursor target', () => {
@@ -71,8 +98,10 @@ describe('projectiles', () => {
 
   it('removes a ranged projectile on hit without freezing the shooter', () => {
     const state = createInitialGameState();
-    state.dummy.x = state.player.x + 100;
-    state.dummy.y = state.player.y;
+    const swordsman = state.enemies[0]!;
+    swordsman.x = state.player.x + 100;
+    swordsman.y = state.player.y;
+    state.teleport.cooldownFramesRemaining = 30;
     spawnArrow(state);
 
     for (let frame = 0; frame < 10 && state.projectiles.length > 0; frame += 1) {
@@ -86,8 +115,43 @@ describe('projectiles', () => {
     }
 
     expect(state.projectiles).toHaveLength(0);
-    expect(state.dummy.hitCount).toBe(1);
-    expect(state.dummy.hitStopFramesRemaining).toBe(HIT_STOP_FRAMES);
+    expect(swordsman.hitCount).toBe(1);
+    expect(swordsman.hitStopFramesRemaining).toBe(HIT_STOP_FRAMES);
     expect(state.player.hitStopFramesRemaining).toBe(0);
+    expect(state.teleport.cooldownFramesRemaining).toBe(0);
+  });
+
+  it('removes a projectile when its lifetime expires', () => {
+    const state = createInitialGameState();
+    spawnArrow(state);
+    state.projectiles[0]!.framesRemaining = 1;
+
+    updateProjectiles(
+      state,
+      ARENA_WIDTH,
+      ARENA_HEIGHT / 2,
+      FIXED_STEP_SECONDS,
+      1,
+    );
+
+    expect(state.projectiles).toHaveLength(0);
+  });
+
+  it('removes a projectile after it leaves the arena', () => {
+    const state = createInitialGameState();
+    spawnArrow(state);
+    const arrow = state.projectiles[0]!;
+    arrow.x = ARENA_WIDTH + BOW_PROJECTILE_RADIUS + 1;
+    arrow.velocityX = 0;
+
+    updateProjectiles(
+      state,
+      ARENA_WIDTH,
+      ARENA_HEIGHT / 2,
+      FIXED_STEP_SECONDS,
+      1,
+    );
+
+    expect(state.projectiles).toHaveLength(0);
   });
 });

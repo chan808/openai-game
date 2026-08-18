@@ -3,23 +3,23 @@ import { describe, expect, it } from 'vitest';
 import {
   FORMATION_ARCHER_HOLD_X,
   FORMATION_ARCHER_HOLD_Y,
-  FORMATION_PRESS_TRIGGER_X,
   FORMATION_SWORDSMAN_HOLD_X,
-  FORMATION_SWORDSMAN_PRESS_X,
+  SQUAD_SEARCH_FRAMES,
 } from '../content/tuning';
 import { FIXED_STEP_SECONDS } from '../core/GameClock';
 import { damageEnemy } from './enemyState';
 import { updateEnemies } from './enemies';
-import { updateFormation } from './formation';
+import { enemyCanSeePlayer, updateFormation } from './formation';
 import {
   createInitialGameState,
   type ArcherState,
   type GameState,
   type SwordsmanState,
 } from './GameState';
+import { updateSwordsman } from './swordsman';
 
-describe('enemy formation', () => {
-  it('holds prepared positions instead of chasing on stage entry', () => {
+describe('enemy formation awareness', () => {
+  it('holds prepared positions while the entrance is out of sight', () => {
     const state = createInitialGameState();
     const swordsman = getSwordsman(state);
     const archer = getArcher(state);
@@ -30,38 +30,89 @@ describe('enemy formation', () => {
     expect(swordsman.x).toBe(FORMATION_SWORDSMAN_HOLD_X);
     expect(archer.x).toBe(FORMATION_ARCHER_HOLD_X);
     expect(archer.y).toBe(FORMATION_ARCHER_HOLD_Y);
-    expect(archer.action).toBe('windup');
+    expect(archer.action).toBe('positioning');
   });
 
-  it('advances the formation without breaking when attacked from range', () => {
+  it('shares the player position when either enemy gains sight', () => {
     const state = createInitialGameState();
-    const swordsman = getSwordsman(state);
+    const archer = getArcher(state);
+    state.player.x = 390;
+    state.player.y = 270;
+
+    expect(enemyCanSeePlayer(state, archer)).toBe(true);
+    updateFormation(state);
+
+    expect(state.formation.phase).toBe('engaged');
+    expect(state.formation.lastKnownPlayerX).toBe(390);
+    expect(state.formation.lastKnownPlayerY).toBe(270);
+  });
+
+  it('treats a hit from outside sight as a revealed threat', () => {
+    const state = createInitialGameState();
 
     damageEnemy(getArcher(state), 1);
     updateFormation(state);
-    updateEnemies(state, FIXED_STEP_SECONDS, 1);
 
-    expect(state.formation.phase).toBe('pressing');
-    expect(swordsman.x).toBeLessThan(FORMATION_SWORDSMAN_HOLD_X);
-    expect(swordsman.x).toBeGreaterThan(FORMATION_SWORDSMAN_PRESS_X);
+    expect(state.formation.phase).toBe('engaged');
+    expect(state.formation.lastKnownPlayerX).toBe(state.player.x);
+    expect(state.formation.lastKnownPlayerY).toBe(state.player.y);
   });
 
-  it('presses when the player enters the arena combat line', () => {
+  it('searches the last seen position after losing sight', () => {
     const state = createInitialGameState();
-    state.player.x = FORMATION_PRESS_TRIGGER_X;
+    state.player.x = 390;
+    state.player.y = 270;
+    updateFormation(state);
+
+    state.player.x = 240;
+    updateFormation(state);
+
+    expect(state.formation.phase).toBe('searching');
+    expect(state.formation.lastKnownPlayerX).toBe(390);
+    expect(state.formation.lastKnownPlayerY).toBe(270);
+  });
+
+  it('returns to formation after checking an empty last seen position', () => {
+    const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    state.formation.phase = 'searching';
+    state.formation.lastKnownPlayerX = 500;
+    state.formation.lastKnownPlayerY = 135;
+    state.formation.searchFramesRemaining = SQUAD_SEARCH_FRAMES;
+    swordsman.x = 500;
+    swordsman.y = 135;
+    state.player.x = 300;
+    state.player.y = 135;
+
+    for (let frame = 0; frame < SQUAD_SEARCH_FRAMES; frame += 1) {
+      updateFormation(state);
+    }
+
+    expect(state.formation.phase).toBe('returning');
+  });
+
+  it('settles back into holding after the squad reaches its anchors', () => {
+    const state = createInitialGameState();
+    state.formation.phase = 'returning';
 
     updateFormation(state);
 
-    expect(state.formation.phase).toBe('pressing');
+    expect(state.formation.phase).toBe('holding');
   });
 
-  it('breaks only after the guard dies', () => {
+  it('routes the swordsman around terrain to the last seen position', () => {
     const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    state.formation.phase = 'searching';
+    state.formation.lastKnownPlayerX = 300;
+    state.formation.lastKnownPlayerY = 400;
 
-    damageEnemy(getSwordsman(state), getSwordsman(state).health.maximum);
-    updateFormation(state);
+    for (let frame = 0; frame < 240; frame += 1) {
+      updateSwordsman(state, swordsman, FIXED_STEP_SECONDS, 1);
+    }
 
-    expect(state.formation.phase).toBe('broken');
+    expect(swordsman.x).toBeCloseTo(300);
+    expect(swordsman.y).toBeCloseTo(400);
   });
 });
 

@@ -13,12 +13,12 @@ import {
 } from '../content/tuning';
 import type { GameState, SwordsmanState } from './GameState';
 import {
+  enemyCanSeePlayer,
   getFormationAnchor,
-  playerIsInsideGuardZone,
-  type FormationAnchor,
 } from './formation';
+import { moveCircleTowardTarget } from './navigation';
 import { damagePlayer } from './playerDamage';
-import { getTerrainRayDistance, moveCircleAgainstTerrain } from './terrain';
+import { getTerrainRayDistance } from './terrain';
 
 export function updateSwordsman(
   state: GameState,
@@ -111,87 +111,60 @@ function updateChase(
   swordsman: SwordsmanState,
   worldDt: number,
 ): void {
-  const formationAnchor = getFormationAnchor(
-    swordsman,
-    state.formation.phase,
-  );
-  if (
-    formationAnchor !== null &&
-    !playerIsInsideGuardZone(state, formationAnchor)
-  ) {
-    facePlayer(state, swordsman);
-    moveTowardAnchor(swordsman, formationAnchor, worldDt);
-    return;
-  }
-
-  const offsetX = state.player.x - swordsman.x;
-  const offsetY = state.player.y - swordsman.y;
+  const target =
+    state.formation.phase === 'holding' ||
+    state.formation.phase === 'returning'
+      ? getFormationAnchor(swordsman)
+      : {
+          x: state.formation.lastKnownPlayerX,
+          y: state.formation.lastKnownPlayerY,
+        };
+  const offsetX = target.x - swordsman.x;
+  const offsetY = target.y - swordsman.y;
   const distance = Math.hypot(offsetX, offsetY);
-  if (distance === 0) {
-    return;
-  }
+  faceTarget(swordsman, target.x, target.y);
 
-  const directionX = offsetX / distance;
-  const directionY = offsetY / distance;
-  swordsman.aimX = directionX;
-  swordsman.aimY = directionY;
-
-  if (distance <= SWORDSMAN_ATTACK_TRIGGER_DISTANCE) {
+  if (
+    state.formation.phase === 'engaged' &&
+    enemyCanSeePlayer(state, swordsman) &&
+    Math.hypot(
+      state.player.x - swordsman.x,
+      state.player.y - swordsman.y,
+    ) <= SWORDSMAN_ATTACK_TRIGGER_DISTANCE
+  ) {
     swordsman.action = 'windup';
     swordsman.actionFramesRemaining = SWORDSMAN_WINDUP_FRAMES;
     return;
   }
 
-  const movement = Math.min(
-    SWORDSMAN_MOVE_SPEED * worldDt,
-    distance - SWORDSMAN_ATTACK_TRIGGER_DISTANCE,
-  );
-  const nextPosition = moveCircleAgainstTerrain(
+  if (distance === 0) {
+    return;
+  }
+
+  const nextPosition = moveCircleTowardTarget(
     swordsman.x,
     swordsman.y,
-    swordsman.x + directionX * movement,
-    swordsman.y + directionY * movement,
+    target.x,
+    target.y,
+    SWORDSMAN_MOVE_SPEED * worldDt,
     SWORDSMAN_RADIUS,
   );
   swordsman.x = nextPosition.x;
   swordsman.y = nextPosition.y;
 }
 
-function facePlayer(
-  state: GameState,
+function faceTarget(
   swordsman: SwordsmanState,
+  targetX: number,
+  targetY: number,
 ): void {
-  const offsetX = state.player.x - swordsman.x;
-  const offsetY = state.player.y - swordsman.y;
+  const offsetX = targetX - swordsman.x;
+  const offsetY = targetY - swordsman.y;
   const distance = Math.hypot(offsetX, offsetY);
   if (distance > 0) {
     swordsman.aimX = offsetX / distance;
     swordsman.aimY = offsetY / distance;
   }
-}
-
-function moveTowardAnchor(
-  swordsman: SwordsmanState,
-  anchor: FormationAnchor,
-  worldDt: number,
-): void {
-  const offsetX = anchor.x - swordsman.x;
-  const offsetY = anchor.y - swordsman.y;
-  const distance = Math.hypot(offsetX, offsetY);
-  if (distance === 0) {
-    return;
-  }
-
-  const movement = Math.min(SWORDSMAN_MOVE_SPEED * worldDt, distance);
-  const nextPosition = moveCircleAgainstTerrain(
-    swordsman.x,
-    swordsman.y,
-    swordsman.x + (offsetX / distance) * movement,
-    swordsman.y + (offsetY / distance) * movement,
-    SWORDSMAN_RADIUS,
-  );
-  swordsman.x = nextPosition.x;
-  swordsman.y = nextPosition.y;
 }
 
 function tryHitPlayer(state: GameState, swordsman: SwordsmanState): void {

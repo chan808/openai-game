@@ -67,6 +67,7 @@ const PILLAR_COLOR = 0x30394f;
 const SLOW_COLOR = 0x8a9dff;
 const TELEPORT_READY_COLOR = 0xb8c4ff;
 const TELEPORT_COOLDOWN_COLOR = 0x59627f;
+const LAST_KNOWN_POSITION_COLOR = 0xffd38a;
 const RESOURCE_BACKGROUND_COLOR = 0x151a26;
 const HEALTH_COLOR = 0x65d17a;
 const MANA_COLOR = 0x598cff;
@@ -137,6 +138,7 @@ export class ArenaScene extends Phaser.Scene {
       projectiles,
       slow,
       teleport,
+      formation,
     } = this.state;
 
     this.graphics.clear();
@@ -145,6 +147,24 @@ export class ArenaScene extends Phaser.Scene {
       this.graphics.fillRect(0, 0, ARENA_WIDTH, ARENA_HEIGHT);
     }
     this.renderTerrain(slow.active);
+
+    if (formation.phase === 'searching') {
+      const { lastKnownPlayerX, lastKnownPlayerY } = formation;
+      this.graphics.lineStyle(2, LAST_KNOWN_POSITION_COLOR, 0.65);
+      this.graphics.strokeCircle(lastKnownPlayerX, lastKnownPlayerY, 12);
+      this.graphics.lineBetween(
+        lastKnownPlayerX - 8,
+        lastKnownPlayerY,
+        lastKnownPlayerX + 8,
+        lastKnownPlayerY,
+      );
+      this.graphics.lineBetween(
+        lastKnownPlayerX,
+        lastKnownPlayerY - 8,
+        lastKnownPlayerX,
+        lastKnownPlayerY + 8,
+      );
+    }
 
     const teleportReady = teleport.cooldownFramesRemaining === 0;
     const teleportColor = teleportReady
@@ -259,7 +279,7 @@ export class ArenaScene extends Phaser.Scene {
     this.statusText.setText(
       `HP ${formatResource(player.health)} | MP ${formatResource(player.mana)}\n` +
       `weapon: ${selectedWeapon}\n${WEAPON_SLOT_HINT}\n` +
-        `formation: ${this.state.formation.phase}\n` +
+        `awareness: ${formation.phase}\n` +
         `time: ${slow.active ? `SLOW x${SLOW_WORLD_TIME_SCALE}` : 'normal'}\n` +
         `${enemyStatus}\n` +
         `defeats: ${player.defeatCount}`,

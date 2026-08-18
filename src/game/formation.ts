@@ -1,89 +1,160 @@
 import {
   FORMATION_ARCHER_HOLD_X,
   FORMATION_ARCHER_HOLD_Y,
-  FORMATION_ARCHER_PRESS_X,
-  FORMATION_ARCHER_PRESS_Y,
-  FORMATION_BREAK_TRIGGER_X,
-  FORMATION_GUARD_RADIUS,
-  FORMATION_PRESS_TRIGGER_X,
+  FORMATION_RETURN_ARRIVAL_RADIUS,
   FORMATION_SWORDSMAN_HOLD_X,
   FORMATION_SWORDSMAN_HOLD_Y,
-  FORMATION_SWORDSMAN_PRESS_X,
-  FORMATION_SWORDSMAN_PRESS_Y,
+  PLAYER_RADIUS,
+  SQUAD_SEARCH_ARRIVAL_RADIUS,
+  SQUAD_SEARCH_FRAMES,
 } from '../content/tuning';
-import type {
-  EnemyState,
-  FormationPhase,
-  GameState,
-} from './GameState';
+import type { EnemyState, GameState } from './GameState';
+import { getTerrainRayDistance } from './terrain';
 
 export interface FormationAnchor {
   x: number;
   y: number;
 }
 
-export function updateFormation(state: GameState): void {
+export function updateFormation(
+  state: GameState,
+  worldTimeScale = 1,
+): void {
   const enemyHitCount = state.enemies.reduce(
     (total, enemy) => total + enemy.hitCount,
     0,
   );
+  const playerWasLocated = state.enemies.some((enemy) =>
+    enemyCanSeePlayer(state, enemy),
+  );
+  const squadWasAttacked =
+    enemyHitCount > state.formation.observedEnemyHitCount;
 
-  if (state.formation.phase !== 'broken') {
-    const swordsman = state.enemies.find(
-      (enemy) => enemy.kind === 'swordsman',
-    );
-    if (
-      swordsman === undefined ||
-      swordsman.action === 'dead' ||
-      state.player.x >= FORMATION_BREAK_TRIGGER_X
-    ) {
-      state.formation.phase = 'broken';
-    } else if (
-      state.formation.phase === 'holding' &&
-      (state.player.x >= FORMATION_PRESS_TRIGGER_X ||
-        enemyHitCount > state.formation.observedEnemyHitCount)
-    ) {
-      state.formation.phase = 'pressing';
-    }
+  if (playerWasLocated || squadWasAttacked) {
+    state.formation.phase = 'engaged';
+    state.formation.lastKnownPlayerX = state.player.x;
+    state.formation.lastKnownPlayerY = state.player.y;
+    state.formation.searchFramesRemaining = SQUAD_SEARCH_FRAMES;
+  } else {
+    updateUnseenFormation(state, worldTimeScale);
   }
 
   state.formation.observedEnemyHitCount = enemyHitCount;
 }
 
-export function getFormationAnchor(
+export function enemyCanSeePlayer(
+  state: GameState,
   enemy: EnemyState,
-  phase: FormationPhase,
-): FormationAnchor | null {
-  if (phase === 'broken') {
-    return null;
+): boolean {
+  return (
+    enemy.action !== 'dead' &&
+    positionHasLineOfSight(
+      enemy.x,
+      enemy.y,
+      state.player.x,
+      state.player.y,
+      0,
+      PLAYER_RADIUS,
+    )
+  );
+}
+
+export function positionHasLineOfSight(
+  originX: number,
+  originY: number,
+  targetX: number,
+  targetY: number,
+  clearanceRadius: number,
+  targetRadius = 0,
+): boolean {
+  const offsetX = targetX - originX;
+  const offsetY = targetY - originY;
+  const distance = Math.hypot(offsetX, offsetY);
+  if (distance === 0) {
+    return true;
   }
 
+  const clearDistance = getTerrainRayDistance(
+    originX,
+    originY,
+    offsetX / distance,
+    offsetY / distance,
+    distance,
+    clearanceRadius,
+  );
+  return clearDistance >= Math.max(0, distance - targetRadius);
+}
+
+export function getFormationAnchor(enemy: EnemyState): FormationAnchor {
   switch (enemy.kind) {
     case 'swordsman':
-      return phase === 'holding'
-        ? {
-            x: FORMATION_SWORDSMAN_HOLD_X,
-            y: FORMATION_SWORDSMAN_HOLD_Y,
-          }
-        : {
-            x: FORMATION_SWORDSMAN_PRESS_X,
-            y: FORMATION_SWORDSMAN_PRESS_Y,
-          };
+      return {
+        x: FORMATION_SWORDSMAN_HOLD_X,
+        y: FORMATION_SWORDSMAN_HOLD_Y,
+      };
     case 'archer':
-      return phase === 'holding'
-        ? { x: FORMATION_ARCHER_HOLD_X, y: FORMATION_ARCHER_HOLD_Y }
-        : { x: FORMATION_ARCHER_PRESS_X, y: FORMATION_ARCHER_PRESS_Y };
+      return { x: FORMATION_ARCHER_HOLD_X, y: FORMATION_ARCHER_HOLD_Y };
   }
 }
 
-export function playerIsInsideGuardZone(
+function updateUnseenFormation(
   state: GameState,
-  anchor: FormationAnchor,
-): boolean {
+  worldTimeScale: number,
+): void {
+  switch (state.formation.phase) {
+    case 'holding':
+    case 'returning':
+      if (
+        state.formation.phase === 'returning' &&
+        squadIsAtFormationAnchors(state)
+      ) {
+        state.formation.phase = 'holding';
+      }
+      return;
+    case 'engaged':
+      state.formation.phase = 'searching';
+      state.formation.searchFramesRemaining = SQUAD_SEARCH_FRAMES;
+      return;
+    case 'searching':
+      if (!searcherReachedLastKnownPosition(state)) {
+        return;
+      }
+      state.formation.searchFramesRemaining = Math.max(
+        0,
+        state.formation.searchFramesRemaining - worldTimeScale,
+      );
+      if (state.formation.searchFramesRemaining === 0) {
+        state.formation.phase = 'returning';
+      }
+      return;
+  }
+}
+
+function searcherReachedLastKnownPosition(state: GameState): boolean {
+  const swordsman = state.enemies.find(
+    (enemy) => enemy.kind === 'swordsman' && enemy.action !== 'dead',
+  );
+  if (swordsman === undefined) {
+    return true;
+  }
+
   return (
     Math.hypot(
-      state.player.x - anchor.x,
-      state.player.y - anchor.y,
-    ) <= FORMATION_GUARD_RADIUS
+      swordsman.x - state.formation.lastKnownPlayerX,
+      swordsman.y - state.formation.lastKnownPlayerY,
+    ) <= SQUAD_SEARCH_ARRIVAL_RADIUS
   );
+}
+
+function squadIsAtFormationAnchors(state: GameState): boolean {
+  return state.enemies.every((enemy) => {
+    if (enemy.action === 'dead') {
+      return true;
+    }
+    const anchor = getFormationAnchor(enemy);
+    return (
+      Math.hypot(enemy.x - anchor.x, enemy.y - anchor.y) <=
+      FORMATION_RETURN_ARRIVAL_RADIUS
+    );
+  });
 }

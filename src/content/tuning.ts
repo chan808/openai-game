@@ -47,14 +47,16 @@ export const ARCHER_RESPAWN_FRAMES = 120;
 export const FORMATION_SWORDSMAN_HOLD_X = 614;
 export const FORMATION_SWORDSMAN_HOLD_Y = 324;
 export const FORMATION_ARCHER_HOLD_X = 787;
-export const FORMATION_ARCHER_HOLD_Y = 250;
-export const FORMATION_SWORDSMAN_PRESS_X = 490;
-export const FORMATION_SWORDSMAN_PRESS_Y = 270;
-export const FORMATION_ARCHER_PRESS_X = 690;
-export const FORMATION_ARCHER_PRESS_Y = 250;
-export const FORMATION_PRESS_TRIGGER_X = 390;
-export const FORMATION_BREAK_TRIGGER_X = 610;
-export const FORMATION_GUARD_RADIUS = 170;
+export const FORMATION_ARCHER_HOLD_Y = 135;
+export const SQUAD_SEARCH_FRAMES = 45;
+export const SQUAD_SEARCH_ARRIVAL_RADIUS = 32;
+export const FORMATION_RETURN_ARRIVAL_RADIUS = 4;
+
+export const ENEMY_NAVIGATION_WAYPOINTS = [
+  { x: 340, y: 270 },
+  { x: 490, y: 270 },
+  { x: 640, y: 270 },
+] as const;
 
 export const SLOW_WORLD_TIME_SCALE = 0.25;
 export const SLOW_MP_DRAIN_PER_SECOND = 25;

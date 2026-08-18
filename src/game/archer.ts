@@ -9,12 +9,19 @@ import {
   PLAYER_RADIUS,
 } from '../content/tuning';
 import type { ArcherState, GameState } from './GameState';
-import { getFormationAnchor, type FormationAnchor } from './formation';
-import { spawnEnemyArrow } from './projectiles';
 import {
-  getTerrainRayDistance,
-  moveCircleAgainstTerrain,
-} from './terrain';
+  enemyCanSeePlayer,
+  getFormationAnchor,
+  positionHasLineOfSight,
+  type FormationAnchor,
+} from './formation';
+import { moveCircleTowardTarget } from './navigation';
+import { spawnEnemyArrow } from './projectiles';
+import { circleIntersectsTerrain } from './terrain';
+
+const TACTICAL_POSITION_COUNT = 12;
+const TACTICAL_POSITION_DISTANCE =
+  (ARCHER_MIN_DISTANCE + ARCHER_MAX_DISTANCE) / 2;
 
 export function updateArcher(
   state: GameState,
@@ -48,96 +55,127 @@ function updatePosition(
   archer: ArcherState,
   worldDt: number,
 ): void {
-  const formationAnchor = getFormationAnchor(
-    archer,
-    state.formation.phase,
+  if (
+    state.formation.phase === 'holding' ||
+    state.formation.phase === 'returning'
+  ) {
+    const anchor = getFormationAnchor(archer);
+    faceTarget(
+      archer,
+      state.formation.lastKnownPlayerX,
+      state.formation.lastKnownPlayerY,
+    );
+    moveTowardPosition(archer, anchor, worldDt);
+    return;
+  }
+
+  const playerDistance = Math.hypot(
+    state.player.x - archer.x,
+    state.player.y - archer.y,
   );
-  if (formationAnchor !== null) {
-    updateFormationPosition(state, archer, formationAnchor, worldDt);
-    return;
-  }
-
-  const offsetX = state.player.x - archer.x;
-  const offsetY = state.player.y - archer.y;
-  const distance = Math.hypot(offsetX, offsetY);
-  if (distance === 0) {
-    return;
-  }
-
-  const directionX = offsetX / distance;
-  const directionY = offsetY / distance;
-  archer.aimX = directionX;
-  archer.aimY = directionY;
-
-  if (distance >= ARCHER_MIN_DISTANCE && distance <= ARCHER_MAX_DISTANCE) {
+  const playerVisible =
+    state.formation.phase === 'engaged' &&
+    enemyCanSeePlayer(state, archer);
+  if (
+    playerVisible &&
+    playerDistance >= ARCHER_MIN_DISTANCE &&
+    playerDistance <= ARCHER_MAX_DISTANCE &&
+    positionHasLineOfSight(
+      archer.x,
+      archer.y,
+      state.player.x,
+      state.player.y,
+      BOW_PROJECTILE_RADIUS,
+      PLAYER_RADIUS,
+    )
+  ) {
+    faceTarget(archer, state.player.x, state.player.y);
     archer.action = 'windup';
     archer.actionFramesRemaining = ARCHER_WINDUP_FRAMES;
     return;
   }
 
-  const directionMultiplier = distance < ARCHER_MIN_DISTANCE ? -1 : 1;
-  const targetDistance =
-    distance < ARCHER_MIN_DISTANCE
-      ? ARCHER_MIN_DISTANCE
-      : ARCHER_MAX_DISTANCE;
-  const movement = Math.min(
-    ARCHER_MOVE_SPEED * worldDt,
-    Math.abs(distance - targetDistance),
+  const tacticalTarget = chooseTacticalPosition(
+    archer,
+    state.formation.lastKnownPlayerX,
+    state.formation.lastKnownPlayerY,
   );
-  const nextPosition = moveCircleAgainstTerrain(
+  faceTarget(
+    archer,
+    state.formation.lastKnownPlayerX,
+    state.formation.lastKnownPlayerY,
+  );
+  moveTowardPosition(archer, tacticalTarget, worldDt);
+}
+
+function chooseTacticalPosition(
+  archer: ArcherState,
+  targetX: number,
+  targetY: number,
+): FormationAnchor {
+  let bestPosition: FormationAnchor | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < TACTICAL_POSITION_COUNT; index += 1) {
+    const angle = (index / TACTICAL_POSITION_COUNT) * Math.PI * 2;
+    const candidate = {
+      x: targetX + Math.cos(angle) * TACTICAL_POSITION_DISTANCE,
+      y: targetY + Math.sin(angle) * TACTICAL_POSITION_DISTANCE,
+    };
+    if (
+      circleIntersectsTerrain(candidate.x, candidate.y, ARCHER_RADIUS) ||
+      !positionHasLineOfSight(
+        candidate.x,
+        candidate.y,
+        targetX,
+        targetY,
+        BOW_PROJECTILE_RADIUS,
+      )
+    ) {
+      continue;
+    }
+
+    const distance = Math.hypot(
+      candidate.x - archer.x,
+      candidate.y - archer.y,
+    );
+    if (distance < bestDistance) {
+      bestPosition = candidate;
+      bestDistance = distance;
+    }
+  }
+
+  return bestPosition ?? getFormationAnchor(archer);
+}
+
+function moveTowardPosition(
+  archer: ArcherState,
+  target: FormationAnchor,
+  worldDt: number,
+): void {
+  const nextPosition = moveCircleTowardTarget(
     archer.x,
     archer.y,
-    archer.x + directionX * movement * directionMultiplier,
-    archer.y + directionY * movement * directionMultiplier,
+    target.x,
+    target.y,
+    ARCHER_MOVE_SPEED * worldDt,
     ARCHER_RADIUS,
   );
   archer.x = nextPosition.x;
   archer.y = nextPosition.y;
 }
 
-function updateFormationPosition(
-  state: GameState,
+function faceTarget(
   archer: ArcherState,
-  anchor: FormationAnchor,
-  worldDt: number,
+  targetX: number,
+  targetY: number,
 ): void {
-  const anchorOffsetX = anchor.x - archer.x;
-  const anchorOffsetY = anchor.y - archer.y;
-  const anchorDistance = Math.hypot(anchorOffsetX, anchorOffsetY);
-  if (anchorDistance > 0) {
-    const movement = Math.min(ARCHER_MOVE_SPEED * worldDt, anchorDistance);
-    const nextPosition = moveCircleAgainstTerrain(
-      archer.x,
-      archer.y,
-      archer.x + (anchorOffsetX / anchorDistance) * movement,
-      archer.y + (anchorOffsetY / anchorDistance) * movement,
-      ARCHER_RADIUS,
-    );
-    archer.x = nextPosition.x;
-    archer.y = nextPosition.y;
-    return;
-  }
-
-  const playerOffsetX = state.player.x - archer.x;
-  const playerOffsetY = state.player.y - archer.y;
-  const playerDistance = Math.hypot(playerOffsetX, playerOffsetY);
-  if (playerDistance === 0) {
-    return;
-  }
-
-  archer.aimX = playerOffsetX / playerDistance;
-  archer.aimY = playerOffsetY / playerDistance;
-  const clearDistance = getTerrainRayDistance(
-    archer.x,
-    archer.y,
-    archer.aimX,
-    archer.aimY,
-    playerDistance,
-    BOW_PROJECTILE_RADIUS,
-  );
-  if (clearDistance >= playerDistance - PLAYER_RADIUS) {
-    archer.action = 'windup';
-    archer.actionFramesRemaining = ARCHER_WINDUP_FRAMES;
+  const offsetX = targetX - archer.x;
+  const offsetY = targetY - archer.y;
+  const distance = Math.hypot(offsetX, offsetY);
+  if (distance > 0) {
+    archer.aimX = offsetX / distance;
+    archer.aimY = offsetY / distance;
   }
 }
 

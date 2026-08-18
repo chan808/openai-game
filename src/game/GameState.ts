@@ -87,10 +87,17 @@ export interface ArcherState {
 
 export type EnemyState = SwordsmanState | ArcherState;
 
-export type FormationPhase = 'holding' | 'pressing' | 'broken';
+export type FormationPhase =
+  | 'holding'
+  | 'engaged'
+  | 'searching'
+  | 'returning';
 
 export interface FormationState {
   phase: FormationPhase;
+  lastKnownPlayerX: number;
+  lastKnownPlayerY: number;
+  searchFramesRemaining: number;
   observedEnemyHitCount: number;
 }
 
@@ -171,6 +178,9 @@ export function createInitialGameState(): GameState {
     enemies: [createSwordsman(), createArcher()],
     formation: {
       phase: 'holding',
+      lastKnownPlayerX: Math.max(PLAYER_RADIUS, ARENA_WIDTH * 0.25),
+      lastKnownPlayerY: ARENA_HEIGHT * 0.5,
+      searchFramesRemaining: 0,
       observedEnemyHitCount: 0,
     },
     selectedWeapon: 'longsword',

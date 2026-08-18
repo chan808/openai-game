@@ -22,10 +22,12 @@ import { updateProjectiles } from './projectiles';
 describe('archer', () => {
   it('approaches or retreats to enter its preferred range band', () => {
     const farState = createInitialGameState();
-    farState.formation.phase = 'broken';
+    farState.formation.phase = 'engaged';
     const farArcher = getArcher(farState);
     farArcher.x = farState.player.x + ARCHER_MAX_DISTANCE + 100;
     farArcher.y = farState.player.y;
+    farState.formation.lastKnownPlayerX = farState.player.x;
+    farState.formation.lastKnownPlayerY = farState.player.y;
     const farStartX = farArcher.x;
 
     updateArcher(farState, farArcher, FIXED_STEP_SECONDS, 1);
@@ -35,10 +37,12 @@ describe('archer', () => {
     );
 
     const nearState = createInitialGameState();
-    nearState.formation.phase = 'broken';
+    nearState.formation.phase = 'engaged';
     const nearArcher = getArcher(nearState);
     nearArcher.x = nearState.player.x + ARCHER_MIN_DISTANCE - 20;
     nearArcher.y = nearState.player.y;
+    nearState.formation.lastKnownPlayerX = nearState.player.x;
+    nearState.formation.lastKnownPlayerY = nearState.player.y;
     const nearStartX = nearArcher.x;
 
     updateArcher(nearState, nearArcher, FIXED_STEP_SECONDS, 1);
@@ -48,10 +52,12 @@ describe('archer', () => {
 
   it('locks its aim during windup and fires a player-style straight arrow', () => {
     const state = createInitialGameState();
-    state.formation.phase = 'broken';
+    state.formation.phase = 'engaged';
     const archer = getArcher(state);
     archer.x = state.player.x + 300;
     archer.y = state.player.y;
+    state.formation.lastKnownPlayerX = state.player.x;
+    state.formation.lastKnownPlayerY = state.player.y;
 
     updateArcher(state, archer, FIXED_STEP_SECONDS, 1);
     expect(archer.action).toBe('windup');

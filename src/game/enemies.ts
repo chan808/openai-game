@@ -9,7 +9,7 @@ export function updateEnemies(
   dt: number,
   worldTimeScale: number,
 ): void {
-  updateFormation(state);
+  updateFormation(state, worldTimeScale);
 
   for (const enemy of state.enemies) {
     if (updateEnemyHitState(enemy, worldTimeScale)) {

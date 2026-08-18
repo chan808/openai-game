@@ -13,6 +13,8 @@ import {
   LONGSWORD_REACH,
   LONGSWORD_SWING_RADIANS,
   MAGIC_PROJECTILE_RADIUS,
+  PLAYER_DAMAGE_SHAKE_DURATION_MS,
+  PLAYER_DAMAGE_SHAKE_INTENSITY,
   PLAYER_RADIUS,
   SLOW_WORLD_TIME_SCALE,
   SWORDSMAN_RADIUS,
@@ -44,7 +46,8 @@ import { SkillBindings } from './SkillBindings';
 import { SkillLoadoutUi } from './SkillLoadoutUi';
 
 const PLAYER_COLOR = 0x4f7cff;
-const PLAYER_HIT_COLOR = 0xffffff;
+const PLAYER_HIT_COLOR = 0xff5f65;
+const PLAYER_INVULNERABLE_COLOR = 0xffa3a8;
 const SWORDSMAN_COLOR = 0xd65f5f;
 const SWORDSMAN_HIT_COLOR = 0xffffff;
 const SWORDSMAN_WINDUP_COLOR = 0xff9b73;
@@ -78,6 +81,7 @@ export class ArenaScene extends Phaser.Scene {
   private inputSource!: PhaserInputSource;
   private skillLoadoutUi!: SkillLoadoutUi;
   private readonly skillBindings = new SkillBindings();
+  private lastPlayerHitCount = 0;
 
   constructor() {
     super('arena');
@@ -108,7 +112,20 @@ export class ArenaScene extends Phaser.Scene {
     this.clock.advance(delta, (step) => {
       updateGame(this.state, this.inputSource, step);
     });
+    this.playPlayerDamageFeedback();
     this.renderState();
+  }
+
+  private playPlayerDamageFeedback(): void {
+    if (this.state.player.hitCount === this.lastPlayerHitCount) {
+      return;
+    }
+
+    this.lastPlayerHitCount = this.state.player.hitCount;
+    this.cameras.main.shake(
+      PLAYER_DAMAGE_SHAKE_DURATION_MS,
+      PLAYER_DAMAGE_SHAKE_INTENSITY,
+    );
   }
 
   private renderState(): void {
@@ -206,6 +223,11 @@ export class ArenaScene extends Phaser.Scene {
       1,
     );
     this.graphics.fillCircle(player.x, player.y, PLAYER_RADIUS);
+    if (player.invulnerabilityFramesRemaining > 0) {
+      const alpha = this.state.frame % 6 < 3 ? 0.9 : 0.35;
+      this.graphics.lineStyle(2, PLAYER_INVULNERABLE_COLOR, alpha);
+      this.graphics.strokeCircle(player.x, player.y, PLAYER_RADIUS + 4);
+    }
 
     const displayedAim =
       longswordAttack.activeFramesRemaining > 0
@@ -219,7 +241,13 @@ export class ArenaScene extends Phaser.Scene {
       player.y + displayedAim.aimY * (PLAYER_RADIUS + 28),
     );
 
-    this.renderResourceBar(16, 16, player.health, HEALTH_COLOR);
+    this.renderResourceBar(
+      16,
+      16,
+      player.health,
+      HEALTH_COLOR,
+      player.hitFlashFramesRemaining > 0 ? PLAYER_HIT_COLOR : 0xffffff,
+    );
     this.renderResourceBar(16, 36, player.mana, MANA_COLOR);
 
     const enemyStatus = enemies
@@ -230,7 +258,8 @@ export class ArenaScene extends Phaser.Scene {
       .join('\n');
     this.statusText.setText(
       `HP ${formatResource(player.health)} | MP ${formatResource(player.mana)}\n` +
-        `weapon: ${selectedWeapon}\n${WEAPON_SLOT_HINT}\n` +
+      `weapon: ${selectedWeapon}\n${WEAPON_SLOT_HINT}\n` +
+        `formation: ${this.state.formation.phase}\n` +
         `time: ${slow.active ? `SLOW x${SLOW_WORLD_TIME_SCALE}` : 'normal'}\n` +
         `${enemyStatus}\n` +
         `defeats: ${player.defeatCount}`,
@@ -463,6 +492,7 @@ export class ArenaScene extends Phaser.Scene {
     y: number,
     resource: ResourceState,
     color: number,
+    borderColor = 0xffffff,
   ): void {
     const ratio = resource.current / resource.maximum;
 
@@ -475,7 +505,7 @@ export class ArenaScene extends Phaser.Scene {
       RESOURCE_BAR_WIDTH * ratio,
       RESOURCE_BAR_HEIGHT,
     );
-    this.graphics.lineStyle(1, 0xffffff, 0.5);
+    this.graphics.lineStyle(borderColor === 0xffffff ? 1 : 2, borderColor, 0.8);
     this.graphics.strokeRect(x, y, RESOURCE_BAR_WIDTH, RESOURCE_BAR_HEIGHT);
   }
 

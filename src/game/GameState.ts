@@ -1,13 +1,15 @@
 import {
   ARCHER_MAX_HP,
-  ARCHER_RADIUS,
   ARENA_HEIGHT,
   ARENA_WIDTH,
   PLAYER_MAX_HP,
   PLAYER_MAX_MP,
   PLAYER_RADIUS,
+  FORMATION_ARCHER_HOLD_X,
+  FORMATION_ARCHER_HOLD_Y,
+  FORMATION_SWORDSMAN_HOLD_X,
+  FORMATION_SWORDSMAN_HOLD_Y,
   SWORDSMAN_MAX_HP,
-  SWORDSMAN_RADIUS,
 } from '../content/tuning';
 
 export interface ResourceState {
@@ -24,6 +26,8 @@ export interface PlayerState {
   mana: ResourceState;
   hitStopFramesRemaining: number;
   hitFlashFramesRemaining: number;
+  invulnerabilityFramesRemaining: number;
+  hitCount: number;
   defeatCount: number;
 }
 
@@ -50,6 +54,9 @@ export interface SwordsmanState {
   hitCount: number;
   hitStopFramesRemaining: number;
   hitFlashFramesRemaining: number;
+  knockbackFramesRemaining: number;
+  knockbackVelocityX: number;
+  knockbackVelocityY: number;
 }
 
 export type ArcherAction =
@@ -73,9 +80,19 @@ export interface ArcherState {
   hitCount: number;
   hitStopFramesRemaining: number;
   hitFlashFramesRemaining: number;
+  knockbackFramesRemaining: number;
+  knockbackVelocityX: number;
+  knockbackVelocityY: number;
 }
 
 export type EnemyState = SwordsmanState | ArcherState;
+
+export type FormationPhase = 'holding' | 'pressing' | 'broken';
+
+export interface FormationState {
+  phase: FormationPhase;
+  observedEnemyHitCount: number;
+}
 
 export interface LongswordAttackState {
   activeFramesRemaining: number;
@@ -118,6 +135,7 @@ export interface GameState {
   frame: number;
   player: PlayerState;
   enemies: EnemyState[];
+  formation: FormationState;
   selectedWeapon: WeaponId;
   longswordAttack: LongswordAttackState;
   bowAttack: RangedAttackState;
@@ -146,9 +164,15 @@ export function createInitialGameState(): GameState {
       },
       hitStopFramesRemaining: 0,
       hitFlashFramesRemaining: 0,
+      invulnerabilityFramesRemaining: 0,
+      hitCount: 0,
       defeatCount: 0,
     },
     enemies: [createSwordsman(), createArcher()],
+    formation: {
+      phase: 'holding',
+      observedEnemyHitCount: 0,
+    },
     selectedWeapon: 'longsword',
     longswordAttack: {
       activeFramesRemaining: 0,
@@ -177,11 +201,8 @@ export function createInitialGameState(): GameState {
 }
 
 function createSwordsman(): SwordsmanState {
-  const x = Math.min(
-    ARENA_WIDTH - SWORDSMAN_RADIUS,
-    ARENA_WIDTH * 0.64,
-  );
-  const y = ARENA_HEIGHT * 0.6;
+  const x = FORMATION_SWORDSMAN_HOLD_X;
+  const y = FORMATION_SWORDSMAN_HOLD_Y;
   return {
     id: 1,
     kind: 'swordsman',
@@ -201,12 +222,15 @@ function createSwordsman(): SwordsmanState {
     hitCount: 0,
     hitStopFramesRemaining: 0,
     hitFlashFramesRemaining: 0,
+    knockbackFramesRemaining: 0,
+    knockbackVelocityX: 0,
+    knockbackVelocityY: 0,
   };
 }
 
 function createArcher(): ArcherState {
-  const x = Math.min(ARENA_WIDTH - ARCHER_RADIUS, ARENA_WIDTH * 0.82);
-  const y = ARENA_HEIGHT * 0.25;
+  const x = FORMATION_ARCHER_HOLD_X;
+  const y = FORMATION_ARCHER_HOLD_Y;
   return {
     id: 2,
     kind: 'archer',
@@ -225,5 +249,8 @@ function createArcher(): ArcherState {
     hitCount: 0,
     hitStopFramesRemaining: 0,
     hitFlashFramesRemaining: 0,
+    knockbackFramesRemaining: 0,
+    knockbackVelocityX: 0,
+    knockbackVelocityY: 0,
   };
 }

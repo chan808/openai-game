@@ -32,6 +32,8 @@ describe('swordsman', () => {
   it('chases the player using world-scaled fixed-step movement', () => {
     const normalState = createInitialGameState();
     const slowedState = createInitialGameState();
+    normalState.formation.phase = 'broken';
+    slowedState.formation.phase = 'broken';
     const normalSwordsman = getSwordsman(normalState);
     const slowedSwordsman = getSwordsman(slowedState);
     normalSwordsman.y = normalState.player.y;
@@ -60,6 +62,7 @@ describe('swordsman', () => {
 
   it('locks its attack direction during the telegraphed windup', () => {
     const state = createInitialGameState();
+    state.formation.phase = 'broken';
     const swordsman = getSwordsman(state);
     swordsman.x = state.player.x + 70;
     swordsman.y = state.player.y;

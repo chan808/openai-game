@@ -7,6 +7,7 @@ import {
   SWORDSMAN_RESPAWN_FRAMES,
 } from '../content/tuning';
 import type { EnemyState } from './GameState';
+import { moveCircleAgainstTerrain } from './terrain';
 
 export function updateEnemyHitState(
   enemy: EnemyState,
@@ -20,12 +21,30 @@ export function updateEnemyHitState(
     return true;
   }
 
+  const wasKnockedBack = enemy.knockbackFramesRemaining > 0;
+  if (wasKnockedBack) {
+    const nextPosition = moveCircleAgainstTerrain(
+      enemy.x,
+      enemy.y,
+      enemy.x + enemy.knockbackVelocityX,
+      enemy.y + enemy.knockbackVelocityY,
+      getEnemyRadius(enemy),
+    );
+    enemy.x = nextPosition.x;
+    enemy.y = nextPosition.y;
+    enemy.knockbackFramesRemaining -= 1;
+    if (enemy.knockbackFramesRemaining === 0) {
+      enemy.knockbackVelocityX = 0;
+      enemy.knockbackVelocityY = 0;
+    }
+  }
+
   const wasHitStopped = enemy.hitStopFramesRemaining > 0;
   enemy.hitStopFramesRemaining = Math.max(
     0,
     enemy.hitStopFramesRemaining - worldTimeScale,
   );
-  if (wasHitStopped) {
+  if (wasHitStopped || wasKnockedBack) {
     return true;
   }
 
@@ -49,6 +68,9 @@ export function damageEnemy(enemy: EnemyState, damage: number): boolean {
     enemy.action = 'dead';
     enemy.actionFramesRemaining = getEnemyRespawnFrames(enemy);
     enemy.hitStopFramesRemaining = 0;
+    enemy.knockbackFramesRemaining = 0;
+    enemy.knockbackVelocityX = 0;
+    enemy.knockbackVelocityY = 0;
     return true;
   }
 
@@ -86,6 +108,9 @@ function respawnEnemy(enemy: EnemyState): void {
   enemy.actionFramesRemaining = 0;
   enemy.hitStopFramesRemaining = 0;
   enemy.hitFlashFramesRemaining = 0;
+  enemy.knockbackFramesRemaining = 0;
+  enemy.knockbackVelocityX = 0;
+  enemy.knockbackVelocityY = 0;
 
   switch (enemy.kind) {
     case 'swordsman':

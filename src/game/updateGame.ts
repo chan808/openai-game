@@ -58,6 +58,7 @@ export function updateGame(
   // the actor even though its timer reaches zero during this update.
   const playerIsHitStopped = state.player.hitStopFramesRemaining > 0;
   tickPlayerHitStop(state);
+  tickPlayerInvulnerability(state);
   if (!playerIsHitStopped) {
     tickPlayerHitFlash(state);
   }
@@ -99,6 +100,13 @@ function tickPlayerHitStop(state: GameState): void {
   state.player.hitStopFramesRemaining = Math.max(
     0,
     state.player.hitStopFramesRemaining - 1,
+  );
+}
+
+function tickPlayerInvulnerability(state: GameState): void {
+  state.player.invulnerabilityFramesRemaining = Math.max(
+    0,
+    state.player.invulnerabilityFramesRemaining - 1,
   );
 }
 

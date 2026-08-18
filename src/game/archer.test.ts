@@ -22,6 +22,7 @@ import { updateProjectiles } from './projectiles';
 describe('archer', () => {
   it('approaches or retreats to enter its preferred range band', () => {
     const farState = createInitialGameState();
+    farState.formation.phase = 'broken';
     const farArcher = getArcher(farState);
     farArcher.x = farState.player.x + ARCHER_MAX_DISTANCE + 100;
     farArcher.y = farState.player.y;
@@ -34,6 +35,7 @@ describe('archer', () => {
     );
 
     const nearState = createInitialGameState();
+    nearState.formation.phase = 'broken';
     const nearArcher = getArcher(nearState);
     nearArcher.x = nearState.player.x + ARCHER_MIN_DISTANCE - 20;
     nearArcher.y = nearState.player.y;
@@ -46,6 +48,7 @@ describe('archer', () => {
 
   it('locks its aim during windup and fires a player-style straight arrow', () => {
     const state = createInitialGameState();
+    state.formation.phase = 'broken';
     const archer = getArcher(state);
     archer.x = state.player.x + 300;
     archer.y = state.player.y;

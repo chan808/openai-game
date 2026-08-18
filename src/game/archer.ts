@@ -5,10 +5,16 @@ import {
   ARCHER_RADIUS,
   ARCHER_RECOVERY_FRAMES,
   ARCHER_WINDUP_FRAMES,
+  BOW_PROJECTILE_RADIUS,
+  PLAYER_RADIUS,
 } from '../content/tuning';
 import type { ArcherState, GameState } from './GameState';
+import { getFormationAnchor, type FormationAnchor } from './formation';
 import { spawnEnemyArrow } from './projectiles';
-import { moveCircleAgainstTerrain } from './terrain';
+import {
+  getTerrainRayDistance,
+  moveCircleAgainstTerrain,
+} from './terrain';
 
 export function updateArcher(
   state: GameState,
@@ -42,6 +48,15 @@ function updatePosition(
   archer: ArcherState,
   worldDt: number,
 ): void {
+  const formationAnchor = getFormationAnchor(
+    archer,
+    state.formation.phase,
+  );
+  if (formationAnchor !== null) {
+    updateFormationPosition(state, archer, formationAnchor, worldDt);
+    return;
+  }
+
   const offsetX = state.player.x - archer.x;
   const offsetY = state.player.y - archer.y;
   const distance = Math.hypot(offsetX, offsetY);
@@ -78,6 +93,52 @@ function updatePosition(
   );
   archer.x = nextPosition.x;
   archer.y = nextPosition.y;
+}
+
+function updateFormationPosition(
+  state: GameState,
+  archer: ArcherState,
+  anchor: FormationAnchor,
+  worldDt: number,
+): void {
+  const anchorOffsetX = anchor.x - archer.x;
+  const anchorOffsetY = anchor.y - archer.y;
+  const anchorDistance = Math.hypot(anchorOffsetX, anchorOffsetY);
+  if (anchorDistance > 0) {
+    const movement = Math.min(ARCHER_MOVE_SPEED * worldDt, anchorDistance);
+    const nextPosition = moveCircleAgainstTerrain(
+      archer.x,
+      archer.y,
+      archer.x + (anchorOffsetX / anchorDistance) * movement,
+      archer.y + (anchorOffsetY / anchorDistance) * movement,
+      ARCHER_RADIUS,
+    );
+    archer.x = nextPosition.x;
+    archer.y = nextPosition.y;
+    return;
+  }
+
+  const playerOffsetX = state.player.x - archer.x;
+  const playerOffsetY = state.player.y - archer.y;
+  const playerDistance = Math.hypot(playerOffsetX, playerOffsetY);
+  if (playerDistance === 0) {
+    return;
+  }
+
+  archer.aimX = playerOffsetX / playerDistance;
+  archer.aimY = playerOffsetY / playerDistance;
+  const clearDistance = getTerrainRayDistance(
+    archer.x,
+    archer.y,
+    archer.aimX,
+    archer.aimY,
+    playerDistance,
+    BOW_PROJECTILE_RADIUS,
+  );
+  if (clearDistance >= playerDistance - PLAYER_RADIUS) {
+    archer.action = 'windup';
+    archer.actionFramesRemaining = ARCHER_WINDUP_FRAMES;
+  }
 }
 
 function tickActionTimer(

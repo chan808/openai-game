@@ -1,6 +1,7 @@
 import type { GameState } from './GameState';
 import { updateArcher } from './archer';
 import { updateEnemyHitState } from './enemyState';
+import { updateFormation } from './formation';
 import { updateSwordsman } from './swordsman';
 
 export function updateEnemies(
@@ -8,6 +9,8 @@ export function updateEnemies(
   dt: number,
   worldTimeScale: number,
 ): void {
+  updateFormation(state);
+
   for (const enemy of state.enemies) {
     if (updateEnemyHitState(enemy, worldTimeScale)) {
       continue;

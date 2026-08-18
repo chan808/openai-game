@@ -42,6 +42,7 @@ export function longswordIntersectsCircle(
   targetX: number,
   targetY: number,
   targetRadius: number,
+  reach = LONGSWORD_REACH,
 ): boolean {
   const direction = getLongswordSwingDirection(attack);
   const targetOffsetX = targetX - originX;
@@ -49,7 +50,7 @@ export function longswordIntersectsCircle(
   const projectedDistance =
     targetOffsetX * direction.x + targetOffsetY * direction.y;
   const distanceAlongBlade = Math.min(
-    LONGSWORD_REACH,
+    reach,
     Math.max(0, projectedDistance),
   );
   const closestX = originX + direction.x * distanceAlongBlade;

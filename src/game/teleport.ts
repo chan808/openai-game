@@ -1,12 +1,11 @@
 import {
-  ARENA_HEIGHT,
-  ARENA_WIDTH,
   PLAYER_RADIUS,
   TELEPORT_COOLDOWN_FRAMES,
   TELEPORT_MAX_DISTANCE,
 } from '../content/tuning';
 import { getEnemyRadius } from './enemyState';
 import type { GameState } from './GameState';
+import { moveDestinationOutsideTerrain } from './terrain';
 
 interface Position {
   x: number;
@@ -92,18 +91,13 @@ export function getTeleportDestination(
   const distance = Math.min(targetDistance, TELEPORT_MAX_DISTANCE);
   const directionX = targetOffsetX / targetDistance;
   const directionY = targetOffsetY / targetDistance;
-  let destination = {
-    x: clampToArena(
-      playerX + directionX * distance,
-      PLAYER_RADIUS,
-      ARENA_WIDTH,
-    ),
-    y: clampToArena(
-      playerY + directionY * distance,
-      PLAYER_RADIUS,
-      ARENA_HEIGHT,
-    ),
-  };
+  let destination = moveDestinationOutsideTerrain(
+    playerX,
+    playerY,
+    playerX + directionX * distance,
+    playerY + directionY * distance,
+    PLAYER_RADIUS,
+  );
 
   for (const obstacle of obstacles) {
     destination = moveOutsideObstacle(
@@ -113,7 +107,13 @@ export function getTeleportDestination(
       obstacle,
     );
   }
-  return destination;
+  return moveDestinationOutsideTerrain(
+    playerX,
+    playerY,
+    destination.x,
+    destination.y,
+    PLAYER_RADIUS,
+  );
 }
 
 function moveOutsideObstacle(
@@ -145,8 +145,4 @@ function moveOutsideObstacle(
     x: obstacle.x + (playerOffsetX / playerDistance) * minimumDistance,
     y: obstacle.y + (playerOffsetY / playerDistance) * minimumDistance,
   };
-}
-
-function clampToArena(value: number, radius: number, size: number): number {
-  return Math.min(size - radius, Math.max(radius, value));
 }

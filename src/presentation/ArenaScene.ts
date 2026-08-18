@@ -6,14 +6,15 @@ import {
   ARCHER_RESPAWN_FRAMES,
   ARCHER_WINDUP_FRAMES,
   ARENA_HEIGHT,
+  ARENA_WALL_THICKNESS,
   ARENA_WIDTH,
   BOW_PROJECTILE_RADIUS,
+  LONGSWORD_BLADE_RADIUS,
   LONGSWORD_REACH,
   LONGSWORD_SWING_RADIANS,
   MAGIC_PROJECTILE_RADIUS,
   PLAYER_RADIUS,
   SLOW_WORLD_TIME_SCALE,
-  SWORDSMAN_ATTACK_REACH,
   SWORDSMAN_RADIUS,
   SWORDSMAN_RESPAWN_FRAMES,
 } from '../content/tuning';
@@ -29,6 +30,11 @@ import {
   getLongswordSwingAngle,
   getLongswordSwingDirection,
 } from '../game/longsword';
+import { getSwordsmanAttackReach } from '../game/swordsman';
+import {
+  getTerrainRayDistance,
+  TERRAIN_OBSTACLES,
+} from '../game/terrain';
 import { updateGame } from '../game/updateGame';
 import {
   PhaserInputSource,
@@ -52,6 +58,9 @@ const LONGSWORD_COLOR = 0x8ec5ff;
 const ARROW_COLOR = 0xffd166;
 const MAGIC_COLOR = 0x75f4c1;
 const ARENA_BORDER_COLOR = 0x34405a;
+const WALL_COLOR = 0x252d40;
+const WALL_EDGE_COLOR = 0x4e5b78;
+const PILLAR_COLOR = 0x30394f;
 const SLOW_COLOR = 0x8a9dff;
 const TELEPORT_READY_COLOR = 0xb8c4ff;
 const TELEPORT_COOLDOWN_COLOR = 0x59627f;
@@ -118,12 +127,7 @@ export class ArenaScene extends Phaser.Scene {
       this.graphics.fillStyle(SLOW_COLOR, 0.1);
       this.graphics.fillRect(0, 0, ARENA_WIDTH, ARENA_HEIGHT);
     }
-    this.graphics.lineStyle(
-      2,
-      slow.active ? SLOW_COLOR : ARENA_BORDER_COLOR,
-      1,
-    );
-    this.graphics.strokeRect(1, 1, ARENA_WIDTH - 2, ARENA_HEIGHT - 2);
+    this.renderTerrain(slow.active);
 
     const teleportReady = teleport.cooldownFramesRemaining === 0;
     const teleportColor = teleportReady
@@ -156,6 +160,14 @@ export class ArenaScene extends Phaser.Scene {
       );
       const swingAngle = getLongswordSwingAngle(longswordAttack);
       const swingDirection = getLongswordSwingDirection(longswordAttack);
+      const unobstructedReach = getTerrainRayDistance(
+        player.x,
+        player.y,
+        swingDirection.x,
+        swingDirection.y,
+        LONGSWORD_REACH,
+        LONGSWORD_BLADE_RADIUS,
+      );
 
       this.graphics.fillStyle(LONGSWORD_COLOR, 0.18);
       this.graphics.beginPath();
@@ -163,7 +175,7 @@ export class ArenaScene extends Phaser.Scene {
       this.graphics.arc(
         player.x,
         player.y,
-        LONGSWORD_REACH,
+        unobstructedReach,
         aimAngle - LONGSWORD_SWING_RADIANS / 2,
         swingAngle,
       );
@@ -172,10 +184,12 @@ export class ArenaScene extends Phaser.Scene {
 
       this.graphics.lineStyle(5, LONGSWORD_COLOR, 1);
       this.graphics.lineBetween(
-        player.x + swingDirection.x * PLAYER_RADIUS,
-        player.y + swingDirection.y * PLAYER_RADIUS,
-        player.x + swingDirection.x * LONGSWORD_REACH,
-        player.y + swingDirection.y * LONGSWORD_REACH,
+        player.x +
+          swingDirection.x * Math.min(PLAYER_RADIUS, unobstructedReach),
+        player.y +
+          swingDirection.y * Math.min(PLAYER_RADIUS, unobstructedReach),
+        player.x + swingDirection.x * unobstructedReach,
+        player.y + swingDirection.y * unobstructedReach,
       );
     }
 
@@ -227,6 +241,57 @@ export class ArenaScene extends Phaser.Scene {
     );
   }
 
+  private renderTerrain(slowActive: boolean): void {
+    this.graphics.fillStyle(WALL_COLOR, 1);
+    this.graphics.fillRect(0, 0, ARENA_WIDTH, ARENA_WALL_THICKNESS);
+    this.graphics.fillRect(
+      0,
+      ARENA_HEIGHT - ARENA_WALL_THICKNESS,
+      ARENA_WIDTH,
+      ARENA_WALL_THICKNESS,
+    );
+    this.graphics.fillRect(0, 0, ARENA_WALL_THICKNESS, ARENA_HEIGHT);
+    this.graphics.fillRect(
+      ARENA_WIDTH - ARENA_WALL_THICKNESS,
+      0,
+      ARENA_WALL_THICKNESS,
+      ARENA_HEIGHT,
+    );
+
+    this.graphics.lineStyle(
+      2,
+      slowActive ? SLOW_COLOR : WALL_EDGE_COLOR,
+      1,
+    );
+    this.graphics.strokeRect(
+      ARENA_WALL_THICKNESS,
+      ARENA_WALL_THICKNESS,
+      ARENA_WIDTH - ARENA_WALL_THICKNESS * 2,
+      ARENA_HEIGHT - ARENA_WALL_THICKNESS * 2,
+    );
+
+    for (const obstacle of TERRAIN_OBSTACLES) {
+      this.graphics.fillStyle(PILLAR_COLOR, 1);
+      this.graphics.fillRect(
+        obstacle.x,
+        obstacle.y,
+        obstacle.width,
+        obstacle.height,
+      );
+      this.graphics.lineStyle(
+        2,
+        slowActive ? SLOW_COLOR : ARENA_BORDER_COLOR,
+        1,
+      );
+      this.graphics.strokeRect(
+        obstacle.x,
+        obstacle.y,
+        obstacle.width,
+        obstacle.height,
+      );
+    }
+  }
+
   private renderEnemy(enemy: EnemyState): void {
     switch (enemy.kind) {
       case 'swordsman':
@@ -250,10 +315,9 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    const attackEndX =
-      swordsman.x + swordsman.aimX * SWORDSMAN_ATTACK_REACH;
-    const attackEndY =
-      swordsman.y + swordsman.aimY * SWORDSMAN_ATTACK_REACH;
+    const attackReach = getSwordsmanAttackReach(swordsman);
+    const attackEndX = swordsman.x + swordsman.aimX * attackReach;
+    const attackEndY = swordsman.y + swordsman.aimY * attackReach;
     if (swordsman.action === 'windup') {
       this.graphics.lineStyle(8, SWORDSMAN_WINDUP_COLOR, 0.28);
       this.graphics.lineBetween(
@@ -334,11 +398,13 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private renderArcherTelegraph(archer: ArcherState): void {
-    const distance = distanceToArenaEdge(
+    const distance = getTerrainRayDistance(
       archer.x,
       archer.y,
       archer.aimX,
       archer.aimY,
+      Math.hypot(ARENA_WIDTH, ARENA_HEIGHT),
+      BOW_PROJECTILE_RADIUS,
     );
     const progress =
       1 - archer.actionFramesRemaining / ARCHER_WINDUP_FRAMES;
@@ -461,26 +527,6 @@ export class ArenaScene extends Phaser.Scene {
     const exhaustiveKind: never = kind;
     void exhaustiveKind;
   }
-}
-
-function distanceToArenaEdge(
-  x: number,
-  y: number,
-  directionX: number,
-  directionY: number,
-): number {
-  const distances: number[] = [];
-  if (directionX > 0) {
-    distances.push((ARENA_WIDTH - x) / directionX);
-  } else if (directionX < 0) {
-    distances.push(-x / directionX);
-  }
-  if (directionY > 0) {
-    distances.push((ARENA_HEIGHT - y) / directionY);
-  } else if (directionY < 0) {
-    distances.push(-y / directionY);
-  }
-  return distances.length > 0 ? Math.min(...distances) : 0;
 }
 
 function formatResource(resource: ResourceState): string {

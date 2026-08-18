@@ -13,6 +13,7 @@ import {
 } from '../content/tuning';
 import type { GameState, SwordsmanState } from './GameState';
 import { damagePlayer } from './playerDamage';
+import { getTerrainRayDistance, moveCircleAgainstTerrain } from './terrain';
 
 export function updateSwordsman(
   state: GameState,
@@ -53,13 +54,20 @@ export function swordsmanAttackIntersectsPlayer(
   swordsman: SwordsmanState,
 ): boolean {
   const { player } = state;
+  const attackReach = getSwordsmanAttackReach(swordsman);
+  if (attackReach <= SWORDSMAN_RADIUS) {
+    return false;
+  }
   const startX = swordsman.x + swordsman.aimX * SWORDSMAN_RADIUS;
   const startY = swordsman.y + swordsman.aimY * SWORDSMAN_RADIUS;
-  const endX = swordsman.x + swordsman.aimX * SWORDSMAN_ATTACK_REACH;
-  const endY = swordsman.y + swordsman.aimY * SWORDSMAN_ATTACK_REACH;
+  const endX = swordsman.x + swordsman.aimX * attackReach;
+  const endY = swordsman.y + swordsman.aimY * attackReach;
   const lineX = endX - startX;
   const lineY = endY - startY;
   const lineLengthSquared = lineX * lineX + lineY * lineY;
+  if (lineLengthSquared === 0) {
+    return false;
+  }
   const projection = Math.min(
     1,
     Math.max(
@@ -77,6 +85,19 @@ export function swordsmanAttackIntersectsPlayer(
   return (
     distanceX * distanceX + distanceY * distanceY <=
     collisionRadius * collisionRadius
+  );
+}
+
+export function getSwordsmanAttackReach(
+  swordsman: SwordsmanState,
+): number {
+  return getTerrainRayDistance(
+    swordsman.x,
+    swordsman.y,
+    swordsman.aimX,
+    swordsman.aimY,
+    SWORDSMAN_ATTACK_REACH,
+    SWORDSMAN_ATTACK_RADIUS,
   );
 }
 
@@ -107,8 +128,15 @@ function updateChase(
     SWORDSMAN_MOVE_SPEED * worldDt,
     distance - SWORDSMAN_ATTACK_TRIGGER_DISTANCE,
   );
-  swordsman.x += directionX * movement;
-  swordsman.y += directionY * movement;
+  const nextPosition = moveCircleAgainstTerrain(
+    swordsman.x,
+    swordsman.y,
+    swordsman.x + directionX * movement,
+    swordsman.y + directionY * movement,
+    SWORDSMAN_RADIUS,
+  );
+  swordsman.x = nextPosition.x;
+  swordsman.y = nextPosition.y;
 }
 
 function tryHitPlayer(state: GameState, swordsman: SwordsmanState): void {

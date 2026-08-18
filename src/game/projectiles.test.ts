@@ -7,6 +7,8 @@ import {
   BOW_PROJECTILE_SPEED,
   HIT_STOP_FRAMES,
   MAGIC_PROJECTILE_SPEED,
+  NORTHWEST_PILLAR_X,
+  NORTHWEST_PILLAR_Y,
   SLOW_WORLD_TIME_SCALE,
 } from '../content/tuning';
 import { FIXED_STEP_SECONDS } from '../core/GameClock';
@@ -149,6 +151,26 @@ describe('projectiles', () => {
       ARENA_WIDTH,
       ARENA_HEIGHT / 2,
       FIXED_STEP_SECONDS,
+      1,
+    );
+
+    expect(state.projectiles).toHaveLength(0);
+  });
+
+  it('removes a projectile when it crosses a pillar', () => {
+    const state = createInitialGameState();
+    spawnArrow(state);
+    const arrow = state.projectiles[0]!;
+    arrow.x = NORTHWEST_PILLAR_X - 20;
+    arrow.y = NORTHWEST_PILLAR_Y + 50;
+    arrow.velocityX = BOW_PROJECTILE_SPEED;
+    arrow.velocityY = 0;
+
+    updateProjectiles(
+      state,
+      ARENA_WIDTH,
+      arrow.y,
+      FIXED_STEP_SECONDS * 2,
       1,
     );
 

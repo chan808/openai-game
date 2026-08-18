@@ -5,13 +5,13 @@ import type {
   WeaponSlotId,
 } from '../core/InputSource';
 import {
-  ARENA_HEIGHT,
-  ARENA_WIDTH,
   BOW_COOLDOWN_FRAMES,
   HIT_STOP_FRAMES,
+  LONGSWORD_BLADE_RADIUS,
   LONGSWORD_ACTIVE_FRAMES,
   LONGSWORD_COOLDOWN_FRAMES,
   LONGSWORD_DAMAGE,
+  LONGSWORD_REACH,
   MAGIC_COOLDOWN_FRAMES,
   PLAYER_MOVE_SPEED,
   PLAYER_RADIUS,
@@ -19,13 +19,17 @@ import {
 import { damageEnemy, getEnemyRadius } from './enemyState';
 import { updateEnemies } from './enemies';
 import type { GameState, WeaponId } from './GameState';
-import { longswordIntersectsCircle } from './longsword';
+import {
+  getLongswordSwingDirection,
+  longswordIntersectsCircle,
+} from './longsword';
 import {
   spawnArrow,
   spawnMagicProjectile,
   updateProjectiles,
 } from './projectiles';
 import { updateSlow } from './slow';
+import { getTerrainRayDistance, moveCircleAgainstTerrain } from './terrain';
 import {
   resetTeleportCooldown,
   tickTeleportCooldown,
@@ -129,18 +133,15 @@ function updatePlayer(
   input: InputFrame,
   dt: number,
 ): void {
-  const nextX = clampToArena(
+  const movement = moveCircleAgainstTerrain(
+    state.player.x,
+    state.player.y,
     state.player.x + input.moveX * PLAYER_MOVE_SPEED * dt,
-    PLAYER_RADIUS,
-    ARENA_WIDTH,
-  );
-  const nextY = clampToArena(
     state.player.y + input.moveY * PLAYER_MOVE_SPEED * dt,
     PLAYER_RADIUS,
-    ARENA_HEIGHT,
   );
 
-  moveOutsideEnemies(state, nextX, nextY);
+  moveOutsideEnemies(state, movement.x, movement.y);
 
   const aim = normalize(
     input.aimTargetX - state.player.x,
@@ -158,10 +159,6 @@ function normalize(x: number, y: number): { x: number; y: number } {
     return { x: 0, y: 0 };
   }
   return { x: x / length, y: y / length };
-}
-
-function clampToArena(value: number, radius: number, size: number): number {
-  return Math.min(size - radius, Math.max(radius, value));
 }
 
 function moveOutsideEnemies(
@@ -189,16 +186,15 @@ function moveOutsideEnemies(
     }
 
     const scale = minimumDistance / Math.sqrt(distanceSquared);
-    state.player.x = clampToArena(
+    const separatedPosition = moveCircleAgainstTerrain(
+      state.player.x,
+      state.player.y,
       enemy.x + dx * scale,
-      PLAYER_RADIUS,
-      ARENA_WIDTH,
-    );
-    state.player.y = clampToArena(
       enemy.y + dy * scale,
       PLAYER_RADIUS,
-      ARENA_HEIGHT,
     );
+    state.player.x = separatedPosition.x;
+    state.player.y = separatedPosition.y;
   }
 }
 
@@ -251,6 +247,15 @@ function updateLongswordAttack(state: GameState, input: InputFrame): void {
     return;
   }
 
+  const swingDirection = getLongswordSwingDirection(attack);
+  const unobstructedReach = getTerrainRayDistance(
+    state.player.x,
+    state.player.y,
+    swingDirection.x,
+    swingDirection.y,
+    LONGSWORD_REACH,
+    LONGSWORD_BLADE_RADIUS,
+  );
   let hitEnemy = false;
   for (const enemy of state.enemies) {
     if (
@@ -263,6 +268,7 @@ function updateLongswordAttack(state: GameState, input: InputFrame): void {
         enemy.x,
         enemy.y,
         getEnemyRadius(enemy),
+        unobstructedReach,
       )
     ) {
       continue;

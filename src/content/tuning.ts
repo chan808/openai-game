@@ -1,5 +1,15 @@
 export const ARENA_WIDTH = 960;
 export const ARENA_HEIGHT = 540;
+export const ARENA_WALL_THICKNESS = 24;
+
+export const NORTHWEST_PILLAR_X = 390;
+export const NORTHWEST_PILLAR_Y = 80;
+export const NORTHWEST_PILLAR_WIDTH = 72;
+export const NORTHWEST_PILLAR_HEIGHT = 150;
+export const SOUTHEAST_PILLAR_X = 510;
+export const SOUTHEAST_PILLAR_Y = 310;
+export const SOUTHEAST_PILLAR_WIDTH = 72;
+export const SOUTHEAST_PILLAR_HEIGHT = 150;
 
 export const PLAYER_MOVE_SPEED = 240;
 export const PLAYER_RADIUS = 18;

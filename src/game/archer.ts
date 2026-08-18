@@ -5,11 +5,10 @@ import {
   ARCHER_RADIUS,
   ARCHER_RECOVERY_FRAMES,
   ARCHER_WINDUP_FRAMES,
-  ARENA_HEIGHT,
-  ARENA_WIDTH,
 } from '../content/tuning';
 import type { ArcherState, GameState } from './GameState';
 import { spawnEnemyArrow } from './projectiles';
+import { moveCircleAgainstTerrain } from './terrain';
 
 export function updateArcher(
   state: GameState,
@@ -70,16 +69,15 @@ function updatePosition(
     ARCHER_MOVE_SPEED * worldDt,
     Math.abs(distance - targetDistance),
   );
-  archer.x = clampToArena(
+  const nextPosition = moveCircleAgainstTerrain(
+    archer.x,
+    archer.y,
     archer.x + directionX * movement * directionMultiplier,
-    ARCHER_RADIUS,
-    ARENA_WIDTH,
-  );
-  archer.y = clampToArena(
     archer.y + directionY * movement * directionMultiplier,
     ARCHER_RADIUS,
-    ARENA_HEIGHT,
   );
+  archer.x = nextPosition.x;
+  archer.y = nextPosition.y;
 }
 
 function tickActionTimer(
@@ -91,8 +89,4 @@ function tickActionTimer(
     archer.actionFramesRemaining - worldTimeScale,
   );
   return archer.actionFramesRemaining === 0;
-}
-
-function clampToArena(value: number, radius: number, size: number): number {
-  return Math.min(size - radius, Math.max(radius, value));
 }

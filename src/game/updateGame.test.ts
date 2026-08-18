@@ -10,10 +10,15 @@ import {
   HIT_STOP_FRAMES,
   LONGSWORD_ACTIVE_FRAMES,
   MAGIC_COOLDOWN_FRAMES,
+  NORTHWEST_PILLAR_HEIGHT,
+  NORTHWEST_PILLAR_WIDTH,
+  NORTHWEST_PILLAR_X,
+  NORTHWEST_PILLAR_Y,
   PLAYER_MOVE_SPEED,
   PLAYER_RADIUS,
   SLOW_MP_DRAIN_PER_SECOND,
   SLOW_WORLD_TIME_SCALE,
+  SWORDSMAN_RADIUS,
   TELEPORT_COOLDOWN_FRAMES,
 } from '../content/tuning';
 import { FIXED_STEP_SECONDS } from '../core/GameClock';
@@ -150,9 +155,12 @@ describe('updateGame', () => {
     const state = createInitialGameState();
     const inputSource = new TestInputSource();
     const previousHitStop = HIT_STOP_FRAMES + 4;
-    state.player.x = getSwordsman(state).x - 100;
-    state.player.y = getSwordsman(state).y;
-    getSwordsman(state).hitStopFramesRemaining = previousHitStop;
+    const swordsman = getSwordsman(state);
+    swordsman.x = 350;
+    swordsman.y = ARENA_HEIGHT / 2;
+    state.player.x = swordsman.x - 100;
+    state.player.y = swordsman.y;
+    swordsman.hitStopFramesRemaining = previousHitStop;
     state.longswordAttack.activeFramesRemaining = 5;
 
     runFrame(state, inputSource, 1);
@@ -161,6 +169,27 @@ describe('updateGame', () => {
     expect(getSwordsman(state).hitStopFramesRemaining).toBe(
       previousHitStop - 1,
     );
+  });
+
+  it('does not hit an enemy through a pillar with the longsword', () => {
+    const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    const inputSource = new TestInputSource();
+    const attackY = NORTHWEST_PILLAR_Y + NORTHWEST_PILLAR_HEIGHT / 2;
+    state.player.x = NORTHWEST_PILLAR_X - PLAYER_RADIUS;
+    state.player.y = attackY;
+    swordsman.x =
+      NORTHWEST_PILLAR_X + NORTHWEST_PILLAR_WIDTH + SWORDSMAN_RADIUS;
+    swordsman.y = attackY;
+    swordsman.action = 'recovering';
+    swordsman.actionFramesRemaining = 30;
+    state.longswordAttack.activeFramesRemaining = 5;
+    state.longswordAttack.aimX = 1;
+    state.longswordAttack.aimY = 0;
+
+    runFrame(state, inputSource, 1);
+
+    expect(swordsman.hitCount).toBe(0);
   });
 
   it('locks the swing direction when the attack starts', () => {

@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest';
 
 import {
   HIT_STOP_FRAMES,
+  NORTHWEST_PILLAR_HEIGHT,
+  NORTHWEST_PILLAR_WIDTH,
+  NORTHWEST_PILLAR_X,
+  NORTHWEST_PILLAR_Y,
+  PLAYER_RADIUS,
   SLOW_WORLD_TIME_SCALE,
   SWORDSMAN_ATTACK_DAMAGE,
   SWORDSMAN_MAX_HP,
   SWORDSMAN_MOVE_SPEED,
+  SWORDSMAN_RADIUS,
   SWORDSMAN_RESPAWN_FRAMES,
   SWORDSMAN_WINDUP_FRAMES,
 } from '../content/tuning';
@@ -17,7 +23,10 @@ import {
   type GameState,
   type SwordsmanState,
 } from './GameState';
-import { updateSwordsman } from './swordsman';
+import {
+  swordsmanAttackIntersectsPlayer,
+  updateSwordsman,
+} from './swordsman';
 
 describe('swordsman', () => {
   it('chases the player using world-scaled fixed-step movement', () => {
@@ -87,6 +96,21 @@ describe('swordsman', () => {
       startHealth - SWORDSMAN_ATTACK_DAMAGE,
     );
     expect(state.player.hitStopFramesRemaining).toBe(HIT_STOP_FRAMES);
+  });
+
+  it('does not hit the player through a pillar', () => {
+    const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    const attackY = NORTHWEST_PILLAR_Y + NORTHWEST_PILLAR_HEIGHT / 2;
+    swordsman.x = NORTHWEST_PILLAR_X - SWORDSMAN_RADIUS;
+    swordsman.y = attackY;
+    swordsman.aimX = 1;
+    swordsman.aimY = 0;
+    state.player.x =
+      NORTHWEST_PILLAR_X + NORTHWEST_PILLAR_WIDTH + PLAYER_RADIUS;
+    state.player.y = attackY;
+
+    expect(swordsmanAttackIntersectsPlayer(state, swordsman)).toBe(false);
   });
 
   it('dies from damage and respawns after the configured world time', () => {

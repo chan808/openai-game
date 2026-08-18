@@ -1,8 +1,6 @@
 import {
   ARCHER_ATTACK_DAMAGE,
   ARCHER_RADIUS,
-  ARENA_HEIGHT,
-  ARENA_WIDTH,
   BOW_DAMAGE,
   BOW_PROJECTILE_LIFETIME_FRAMES,
   BOW_PROJECTILE_RADIUS,
@@ -25,6 +23,7 @@ import type {
 } from './GameState';
 import { damagePlayer } from './playerDamage';
 import { resetTeleportCooldown } from './teleport';
+import { segmentIntersectsTerrain } from './terrain';
 
 export function spawnArrow(state: GameState): void {
   state.projectiles.push(
@@ -108,9 +107,23 @@ export function updateProjectiles(
       steerMagicProjectile(projectile, aimTargetX, aimTargetY, worldDt);
     }
 
+    const startX = projectile.x;
+    const startY = projectile.y;
     projectile.x += projectile.velocityX * worldDt;
     projectile.y += projectile.velocityY * worldDt;
     projectile.framesRemaining -= worldTimeScale;
+
+    if (
+      segmentIntersectsTerrain(
+        startX,
+        startY,
+        projectile.x,
+        projectile.y,
+        getProjectileRadius(projectile.kind),
+      )
+    ) {
+      continue;
+    }
 
     if (projectile.owner === 'player') {
       const enemy = findIntersectedEnemy(state, projectile);
@@ -127,10 +140,7 @@ export function updateProjectiles(
       continue;
     }
 
-    if (
-      projectile.framesRemaining > 0 &&
-      projectileIsInsideArena(projectile)
-    ) {
+    if (projectile.framesRemaining > 0) {
       survivingProjectiles.push(projectile);
     }
   }
@@ -259,15 +269,5 @@ function projectileIntersectsCircle(
   return (
     distanceX * distanceX + distanceY * distanceY <=
     collisionRadius * collisionRadius
-  );
-}
-
-function projectileIsInsideArena(projectile: ProjectileState): boolean {
-  const radius = getProjectileRadius(projectile.kind);
-  return (
-    projectile.x + radius >= 0 &&
-    projectile.x - radius <= ARENA_WIDTH &&
-    projectile.y + radius >= 0 &&
-    projectile.y - radius <= ARENA_HEIGHT
   );
 }

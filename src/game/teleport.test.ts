@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ARENA_WIDTH,
+  ARENA_WALL_THICKNESS,
   PLAYER_RADIUS,
   TELEPORT_COOLDOWN_FRAMES,
   TELEPORT_MAX_DISTANCE,
@@ -34,7 +35,9 @@ describe('teleport', () => {
 
     expect(rangedDestination.x).toBe(100 + TELEPORT_MAX_DISTANCE);
     expect(rangedDestination.y).toBe(100);
-    expect(boundedDestination.x).toBe(ARENA_WIDTH - PLAYER_RADIUS);
+    expect(boundedDestination.x).toBe(
+      ARENA_WIDTH - ARENA_WALL_THICKNESS - PLAYER_RADIUS,
+    );
   });
 
   it('places the player before a living swordsman when the destination overlaps it', () => {

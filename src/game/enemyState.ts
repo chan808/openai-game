@@ -9,12 +9,9 @@ import {
 import type { EnemyState } from './GameState';
 import { moveCircleAgainstTerrain } from './terrain';
 
-export function updateEnemyHitState(
-  enemy: EnemyState,
-  worldTimeScale: number,
-): boolean {
+export function updateEnemyHitState(enemy: EnemyState): boolean {
   if (enemy.action === 'dead') {
-    enemy.actionFramesRemaining -= worldTimeScale;
+    enemy.actionFramesRemaining -= 1;
     if (enemy.actionFramesRemaining <= 0) {
       respawnEnemy(enemy);
     }
@@ -32,7 +29,10 @@ export function updateEnemyHitState(
     );
     enemy.x = nextPosition.x;
     enemy.y = nextPosition.y;
-    enemy.knockbackFramesRemaining -= 1;
+    enemy.knockbackFramesRemaining = Math.max(
+      0,
+      enemy.knockbackFramesRemaining - 1,
+    );
     if (enemy.knockbackFramesRemaining === 0) {
       enemy.knockbackVelocityX = 0;
       enemy.knockbackVelocityY = 0;
@@ -42,7 +42,7 @@ export function updateEnemyHitState(
   const wasHitStopped = enemy.hitStopFramesRemaining > 0;
   enemy.hitStopFramesRemaining = Math.max(
     0,
-    enemy.hitStopFramesRemaining - worldTimeScale,
+    enemy.hitStopFramesRemaining - 1,
   );
   if (wasHitStopped || wasKnockedBack) {
     return true;
@@ -50,12 +50,16 @@ export function updateEnemyHitState(
 
   enemy.hitFlashFramesRemaining = Math.max(
     0,
-    enemy.hitFlashFramesRemaining - worldTimeScale,
+    enemy.hitFlashFramesRemaining - 1,
   );
   return false;
 }
 
-export function damageEnemy(enemy: EnemyState, damage: number): boolean {
+export function damageEnemy(
+  enemy: EnemyState,
+  damage: number,
+  applyHitStop = true,
+): boolean {
   if (enemy.action === 'dead') {
     return false;
   }
@@ -74,11 +78,20 @@ export function damageEnemy(enemy: EnemyState, damage: number): boolean {
     return true;
   }
 
-  enemy.hitStopFramesRemaining = Math.max(
-    enemy.hitStopFramesRemaining,
-    HIT_STOP_FRAMES,
-  );
+  if (applyHitStop) {
+    enemy.hitStopFramesRemaining = Math.max(
+      enemy.hitStopFramesRemaining,
+      HIT_STOP_FRAMES,
+    );
+  }
   return true;
+}
+
+export function tickFrozenEnemyHitFlash(enemy: EnemyState): void {
+  enemy.hitFlashFramesRemaining = Math.max(
+    0,
+    enemy.hitFlashFramesRemaining - 1,
+  );
 }
 
 export function getEnemyRadius(enemy: EnemyState): number {
@@ -119,6 +132,7 @@ function respawnEnemy(enemy: EnemyState): void {
       return;
     case 'archer':
       enemy.action = 'positioning';
+      enemy.tacticalAngle = null;
       return;
   }
 }

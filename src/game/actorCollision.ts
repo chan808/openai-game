@@ -6,48 +6,72 @@ import { moveCircleAgainstTerrain } from './terrain';
 const ACTOR_SEPARATION_PASSES = 8;
 const ACTOR_SEPARATION_EPSILON = 0.001;
 
-interface CollisionActor<State extends PlayerState | EnemyState> {
-  state: State;
+interface PlayerCollisionActor {
+  kind: 'player';
+  state: PlayerState;
   radius: number;
 }
 
+interface EnemyCollisionActor {
+  kind: 'enemy';
+  state: EnemyState;
+  radius: number;
+}
+
+type CollisionActor = PlayerCollisionActor | EnemyCollisionActor;
+
+export function separateLivingEnemies(state: GameState): void {
+  separateActors(
+    state.enemies
+      .filter((enemy) => enemy.action !== 'dead')
+      .map((enemy) => createEnemyActor(enemy)),
+  );
+}
+
 export function separatePlayerAndLivingEnemies(state: GameState): void {
-  const player: CollisionActor<PlayerState> = {
+  separateActors([
+    {
+      kind: 'player',
+      state: state.player,
+      radius: PLAYER_RADIUS,
+    },
+    ...state.enemies
+      .filter((enemy) => enemy.action !== 'dead')
+      .map((enemy) => createEnemyActor(enemy)),
+  ]);
+}
+
+export function separatePlayerFromFrozenEnemies(state: GameState): void {
+  const player = {
+    kind: 'player' as const,
     state: state.player,
     radius: PLAYER_RADIUS,
   };
-  const enemies = state.enemies
-    .filter((enemy) => enemy.action !== 'dead')
-    .map((enemy) => ({
-      state: enemy,
-      radius: getEnemyRadius(enemy),
-    }));
 
   for (let pass = 0; pass < ACTOR_SEPARATION_PASSES; pass += 1) {
     let foundOverlap = false;
+    for (const enemy of state.enemies) {
+      if (enemy.action === 'dead') {
+        continue;
+      }
 
-    for (const enemy of enemies) {
-      const offsetX = enemy.state.x - player.state.x;
-      const offsetY = enemy.state.y - player.state.y;
+      const offsetX = player.state.x - enemy.x;
+      const offsetY = player.state.y - enemy.y;
       const distance = Math.hypot(offsetX, offsetY);
-      const minimumDistance = player.radius + enemy.radius;
+      const minimumDistance = player.radius + getEnemyRadius(enemy);
       if (distance >= minimumDistance - ACTOR_SEPARATION_EPSILON) {
         continue;
       }
 
       foundOverlap = true;
-      const direction = getSeparationDirection(
-        player.state,
-        offsetX,
-        offsetY,
-        distance,
-      );
-      separatePair(
+      const direction =
+        distance > 0
+          ? { x: offsetX / distance, y: offsetY / distance }
+          : getAimDirection(player.state, -1);
+      moveActorBy(
         player,
-        enemy,
-        direction.x,
-        direction.y,
-        minimumDistance - distance,
+        direction.x * (minimumDistance - distance),
+        direction.y * (minimumDistance - distance),
       );
     }
 
@@ -57,8 +81,61 @@ export function separatePlayerAndLivingEnemies(state: GameState): void {
   }
 }
 
+function createEnemyActor(enemy: EnemyState): EnemyCollisionActor {
+  return {
+    kind: 'enemy',
+    state: enemy,
+    radius: getEnemyRadius(enemy),
+  };
+}
+
+function separateActors(actors: CollisionActor[]): void {
+  for (let pass = 0; pass < ACTOR_SEPARATION_PASSES; pass += 1) {
+    let foundOverlap = false;
+
+    for (let firstIndex = 0; firstIndex < actors.length; firstIndex += 1) {
+      const first = actors[firstIndex]!;
+      for (
+        let secondIndex = firstIndex + 1;
+        secondIndex < actors.length;
+        secondIndex += 1
+      ) {
+        const second = actors[secondIndex]!;
+        const offsetX = second.state.x - first.state.x;
+        const offsetY = second.state.y - first.state.y;
+        const distance = Math.hypot(offsetX, offsetY);
+        const minimumDistance = first.radius + second.radius;
+        if (distance >= minimumDistance - ACTOR_SEPARATION_EPSILON) {
+          continue;
+        }
+
+        foundOverlap = true;
+        const direction = getSeparationDirection(
+          first,
+          second,
+          offsetX,
+          offsetY,
+          distance,
+        );
+        separatePair(
+          first,
+          second,
+          direction.x,
+          direction.y,
+          minimumDistance - distance,
+        );
+      }
+    }
+
+    if (!foundOverlap) {
+      return;
+    }
+  }
+}
+
 function getSeparationDirection(
-  player: PlayerState,
+  first: CollisionActor,
+  second: CollisionActor,
   offsetX: number,
   offsetY: number,
   distance: number,
@@ -67,19 +144,32 @@ function getSeparationDirection(
     return { x: offsetX / distance, y: offsetY / distance };
   }
 
-  const aimLength = Math.hypot(player.aimX, player.aimY);
-  if (aimLength === 0) {
-    return { x: 1, y: 0 };
+  if (first.kind === 'player') {
+    return getAimDirection(first.state, 1);
+  }
+  if (second.kind === 'player') {
+    return getAimDirection(second.state, -1);
+  }
+  return { x: 1, y: 0 };
+}
+
+function getAimDirection(
+  player: PlayerState,
+  scale: 1 | -1,
+): { x: number; y: number } {
+  const length = Math.hypot(player.aimX, player.aimY);
+  if (length === 0) {
+    return { x: scale, y: 0 };
   }
   return {
-    x: player.aimX / aimLength,
-    y: player.aimY / aimLength,
+    x: (player.aimX / length) * scale,
+    y: (player.aimY / length) * scale,
   };
 }
 
 function separatePair(
-  first: CollisionActor<PlayerState>,
-  second: CollisionActor<EnemyState>,
+  first: CollisionActor,
+  second: CollisionActor,
   directionX: number,
   directionY: number,
   overlap: number,
@@ -107,8 +197,8 @@ function separatePair(
 }
 
 function getRemainingOverlap(
-  first: CollisionActor<PlayerState>,
-  second: CollisionActor<EnemyState>,
+  first: CollisionActor,
+  second: CollisionActor,
 ): number {
   return Math.max(
     0,
@@ -121,8 +211,8 @@ function getRemainingOverlap(
   );
 }
 
-function moveActorBy<State extends PlayerState | EnemyState>(
-  actor: CollisionActor<State>,
+function moveActorBy(
+  actor: CollisionActor,
   offsetX: number,
   offsetY: number,
 ): void {

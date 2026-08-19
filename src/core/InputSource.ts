@@ -6,8 +6,8 @@ export interface InputFrame {
   aimTargetX: number;
   aimTargetY: number;
   primaryPressed: boolean;
-  slowHeld: boolean;
   teleportPressed: boolean;
+  ultimatePressed: boolean;
   weaponSlotPressed: WeaponSlotId | null;
 }
 

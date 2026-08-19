@@ -44,10 +44,11 @@ describe('player damage response', () => {
     expect(distantEnemy.knockbackFramesRemaining).toBe(0);
 
     const startX = nearbyEnemy.x;
-    expect(updateEnemyHitState(nearbyEnemy, 1)).toBe(true);
+    expect(updateEnemyHitState(nearbyEnemy)).toBe(true);
     expect(nearbyEnemy.x).toBeGreaterThan(startX);
     expect(nearbyEnemy.knockbackFramesRemaining).toBe(
       PLAYER_HIT_KNOCKBACK_FRAMES - 1,
     );
   });
+
 });

@@ -6,8 +6,6 @@ import type {
   WeaponSlotId,
 } from '../core/InputSource';
 import {
-  SKILL_SLOT_IDS,
-  type PlaytestSkillId,
   type SkillBindings,
   type SkillSlotId,
 } from './SkillBindings';
@@ -33,6 +31,7 @@ export class PhaserInputSource implements InputSource {
   private readonly skillSpace: Phaser.Input.Keyboard.Key;
   private primaryLatched = false;
   private teleportLatched = false;
+  private ultimateLatched = false;
   private weaponSlotLatched: WeaponSlotId | null = null;
   private gameplayEnabled = true;
 
@@ -78,12 +77,14 @@ export class PhaserInputSource implements InputSource {
       : { x: 0, y: 0 };
     const primaryPressed = this.gameplayEnabled && this.primaryLatched;
     const teleportPressed = this.gameplayEnabled && this.teleportLatched;
+    const ultimatePressed = this.gameplayEnabled && this.ultimateLatched;
     const weaponSlotPressed = this.gameplayEnabled
       ? this.weaponSlotLatched
       : null;
 
     this.primaryLatched = false;
     this.teleportLatched = false;
+    this.ultimateLatched = false;
     this.weaponSlotLatched = null;
 
     return {
@@ -92,9 +93,8 @@ export class PhaserInputSource implements InputSource {
       aimTargetX: pointer.worldX,
       aimTargetY: pointer.worldY,
       primaryPressed,
-      slowHeld:
-        this.gameplayEnabled && this.skillIsHeld('slow'),
       teleportPressed,
+      ultimatePressed,
       weaponSlotPressed,
     };
   }
@@ -104,6 +104,7 @@ export class PhaserInputSource implements InputSource {
     if (!enabled) {
       this.primaryLatched = false;
       this.teleportLatched = false;
+      this.ultimateLatched = false;
       this.weaponSlotLatched = null;
     }
   }
@@ -166,34 +167,19 @@ export class PhaserInputSource implements InputSource {
   }
 
   private activateSkillSlot(slotId: SkillSlotId): void {
-    if (
-      this.gameplayEnabled &&
-      this.skillBindings.getSkill(slotId) === 'teleport'
-    ) {
-      this.teleportLatched = true;
+    if (!this.gameplayEnabled) {
+      return;
     }
-  }
 
-  private skillIsHeld(skillId: PlaytestSkillId): boolean {
-    return SKILL_SLOT_IDS.some(
-      (slotId) =>
-        this.skillBindings.getSkill(slotId) === skillId &&
-        this.slotIsHeld(slotId),
-    );
-  }
-
-  private slotIsHeld(slotId: SkillSlotId): boolean {
-    switch (slotId) {
-      case 'q':
-        return this.skillQ.isDown;
-      case 'e':
-        return this.skillE.isDown;
-      case 'r':
-        return this.skillR.isDown;
-      case 'space':
-        return this.skillSpace.isDown;
-      case 'mouseRight':
-        return this.scene.input.activePointer.rightButtonDown();
+    switch (this.skillBindings.getSkill(slotId)) {
+      case 'teleport':
+        this.teleportLatched = true;
+        return;
+      case 'ultimate':
+        this.ultimateLatched = true;
+        return;
+      case null:
+        return;
     }
   }
 }

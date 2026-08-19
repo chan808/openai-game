@@ -8,7 +8,7 @@ new Phaser.Game({
   parent: 'game',
   width: ARENA_WIDTH,
   height: ARENA_HEIGHT,
-  backgroundColor: '#10141f',
+  backgroundColor: '#090d16',
   scene: ArenaScene,
   scale: {
     mode: Phaser.Scale.FIT,

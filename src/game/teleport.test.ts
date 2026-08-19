@@ -5,13 +5,16 @@ import {
   ARENA_WALL_THICKNESS,
   PLAYER_RADIUS,
   TELEPORT_COOLDOWN_FRAMES,
+  TELEPORT_ECHO_DURATION_FRAMES,
+  TELEPORT_ECHO_ULTIMATE_CHARGE,
   TELEPORT_MAX_DISTANCE,
   SWORDSMAN_RADIUS,
+  ULTIMATE_MAX_CHARGE,
 } from '../content/tuning';
 import { createInitialGameState } from './GameState';
 import {
+  consumeTeleportEcho,
   getTeleportDestination,
-  resetTeleportCooldown,
   tickTeleportCooldown,
   tryTeleport,
 } from './teleport';
@@ -61,6 +64,11 @@ describe('teleport', () => {
     expect(state.teleport.cooldownFramesRemaining).toBe(
       TELEPORT_COOLDOWN_FRAMES,
     );
+    expect(state.teleport.echo).toEqual({
+      x: state.player.x - 100,
+      y: state.player.y,
+      framesRemaining: TELEPORT_ECHO_DURATION_FRAMES,
+    });
 
     state.teleport.destinationX = state.player.x + 100;
     expect(tryTeleport(state, true)).toBe(false);
@@ -70,7 +78,26 @@ describe('teleport', () => {
       TELEPORT_COOLDOWN_FRAMES - 1,
     );
 
-    resetTeleportCooldown(state);
-    expect(tryTeleport(state, true)).toBe(true);
+  });
+
+  it('charges the ultimate once when the active echo is consumed', () => {
+    const state = createInitialGameState();
+    state.teleport.echo.framesRemaining = TELEPORT_ECHO_DURATION_FRAMES;
+
+    expect(consumeTeleportEcho(state)).toBe(true);
+    expect(state.ultimate.charge.current).toBe(
+      TELEPORT_ECHO_ULTIMATE_CHARGE,
+    );
+    expect(state.teleport.echo.framesRemaining).toBe(0);
+    expect(consumeTeleportEcho(state)).toBe(false);
+    expect(state.ultimate.charge.current).toBe(
+      TELEPORT_ECHO_ULTIMATE_CHARGE,
+    );
+
+    state.teleport.echo.framesRemaining = 1;
+    state.ultimate.charge.current = ULTIMATE_MAX_CHARGE - 1;
+    consumeTeleportEcho(state);
+
+    expect(state.ultimate.charge.current).toBe(ULTIMATE_MAX_CHARGE);
   });
 });

@@ -27,21 +27,20 @@ export function updateArcher(
   state: GameState,
   archer: ArcherState,
   dt: number,
-  worldTimeScale: number,
 ): void {
   switch (archer.action) {
     case 'positioning':
-      updatePosition(state, archer, dt * worldTimeScale);
+      updatePosition(state, archer, dt);
       return;
     case 'windup':
-      if (tickActionTimer(archer, worldTimeScale)) {
+      if (tickActionTimer(archer)) {
         spawnEnemyArrow(state, archer);
         archer.action = 'recovering';
         archer.actionFramesRemaining = ARCHER_RECOVERY_FRAMES;
       }
       return;
     case 'recovering':
-      if (tickActionTimer(archer, worldTimeScale)) {
+      if (tickActionTimer(archer)) {
         archer.action = 'positioning';
       }
       return;
@@ -59,6 +58,7 @@ function updatePosition(
     state.formation.phase === 'holding' ||
     state.formation.phase === 'returning'
   ) {
+    archer.tacticalAngle = null;
     const anchor = getFormationAnchor(archer);
     faceTarget(
       archer,
@@ -113,39 +113,72 @@ function chooseTacticalPosition(
   targetX: number,
   targetY: number,
 ): FormationAnchor {
-  let bestPosition: FormationAnchor | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  for (let index = 0; index < TACTICAL_POSITION_COUNT; index += 1) {
-    const angle = (index / TACTICAL_POSITION_COUNT) * Math.PI * 2;
-    const candidate = {
-      x: targetX + Math.cos(angle) * TACTICAL_POSITION_DISTANCE,
-      y: targetY + Math.sin(angle) * TACTICAL_POSITION_DISTANCE,
-    };
-    if (
-      circleIntersectsTerrain(candidate.x, candidate.y, ARCHER_RADIUS) ||
-      !positionHasLineOfSight(
-        candidate.x,
-        candidate.y,
-        targetX,
-        targetY,
-        BOW_PROJECTILE_RADIUS,
-      )
-    ) {
-      continue;
-    }
-
-    const distance = Math.hypot(
-      candidate.x - archer.x,
-      candidate.y - archer.y,
+  if (archer.tacticalAngle !== null) {
+    const retainedPosition = getTacticalPosition(
+      targetX,
+      targetY,
+      archer.tacticalAngle,
     );
-    if (distance < bestDistance) {
-      bestPosition = candidate;
-      bestDistance = distance;
+    if (tacticalPositionIsValid(retainedPosition, targetX, targetY)) {
+      return retainedPosition;
     }
   }
 
-  return bestPosition ?? getFormationAnchor(archer);
+  const baseAngle = Math.atan2(archer.y - targetY, archer.x - targetX);
+
+  for (let index = 0; index < TACTICAL_POSITION_COUNT; index += 1) {
+    const angle = baseAngle + getTacticalAngleOffset(index);
+    const candidate = getTacticalPosition(targetX, targetY, angle);
+    if (!tacticalPositionIsValid(candidate, targetX, targetY)) {
+      continue;
+    }
+
+    archer.tacticalAngle = angle;
+    return candidate;
+  }
+
+  archer.tacticalAngle = null;
+  return getFormationAnchor(archer);
+}
+
+function getTacticalAngleOffset(index: number): number {
+  if (index === 0) {
+    return 0;
+  }
+
+  const step = Math.ceil(index / 2);
+  const direction = index % 2 === 1 ? 1 : -1;
+  return (
+    direction * step * ((Math.PI * 2) / TACTICAL_POSITION_COUNT)
+  );
+}
+
+function getTacticalPosition(
+  targetX: number,
+  targetY: number,
+  angle: number,
+): FormationAnchor {
+  return {
+    x: targetX + Math.cos(angle) * TACTICAL_POSITION_DISTANCE,
+    y: targetY + Math.sin(angle) * TACTICAL_POSITION_DISTANCE,
+  };
+}
+
+function tacticalPositionIsValid(
+  candidate: FormationAnchor,
+  targetX: number,
+  targetY: number,
+): boolean {
+  return (
+    !circleIntersectsTerrain(candidate.x, candidate.y, ARCHER_RADIUS) &&
+    positionHasLineOfSight(
+      candidate.x,
+      candidate.y,
+      targetX,
+      targetY,
+      BOW_PROJECTILE_RADIUS,
+    )
+  );
 }
 
 function moveTowardPosition(
@@ -179,13 +212,10 @@ function faceTarget(
   }
 }
 
-function tickActionTimer(
-  archer: ArcherState,
-  worldTimeScale: number,
-): boolean {
+function tickActionTimer(archer: ArcherState): boolean {
   archer.actionFramesRemaining = Math.max(
     0,
-    archer.actionFramesRemaining - worldTimeScale,
+    archer.actionFramesRemaining - 1,
   );
   return archer.actionFramesRemaining === 0;
 }

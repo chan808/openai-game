@@ -5,12 +5,11 @@ import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
   BOW_COOLDOWN_FRAMES,
-  BOW_PROJECTILE_RADIUS,
-  BOW_PROJECTILE_SPEED,
   HIT_FLASH_FRAMES,
   HIT_STOP_FRAMES,
   LONGSWORD_ACTIVE_FRAMES,
   LONGSWORD_COOLDOWN_FRAMES,
+  LONGSWORD_DAMAGE,
   MAGIC_COOLDOWN_FRAMES,
   NORTHWEST_PILLAR_HEIGHT,
   NORTHWEST_PILLAR_WIDTH,
@@ -18,10 +17,12 @@ import {
   NORTHWEST_PILLAR_Y,
   PLAYER_MOVE_SPEED,
   PLAYER_RADIUS,
-  SLOW_MP_DRAIN_PER_SECOND,
-  SLOW_WORLD_TIME_SCALE,
   SWORDSMAN_RADIUS,
   TELEPORT_COOLDOWN_FRAMES,
+  ULTIMATE_MAX_CHARGE,
+  ULTIMATE_RECORD_FRAMES,
+  ULTIMATE_REPLAY_FRAMES,
+  ULTIMATE_REPLAY_SPEED,
 } from '../content/tuning';
 import { FIXED_STEP_SECONDS } from '../core/GameClock';
 import type { InputFrame, InputSource } from '../core/InputSource';
@@ -39,8 +40,8 @@ const IDLE_INPUT: InputFrame = {
   aimTargetX: ARENA_WIDTH,
   aimTargetY: ARENA_HEIGHT / 2,
   primaryPressed: false,
-  slowHeld: false,
   teleportPressed: false,
+  ultimatePressed: false,
   weaponSlotPressed: null,
 };
 
@@ -85,7 +86,9 @@ describe('updateGame', () => {
     expect(state.player.hitStopFramesRemaining).toBe(HIT_STOP_FRAMES);
     expect(getSwordsman(state).hitStopFramesRemaining).toBe(HIT_STOP_FRAMES);
     expect(getSwordsman(state).hitFlashFramesRemaining).toBe(HIT_FLASH_FRAMES);
-    expect(state.teleport.cooldownFramesRemaining).toBe(0);
+    expect(state.teleport.cooldownFramesRemaining).toBe(
+      TELEPORT_COOLDOWN_FRAMES - hitFrame,
+    );
 
     const stoppedX = state.player.x;
     const stoppedActiveFrames =
@@ -314,38 +317,176 @@ describe('updateGame', () => {
     expect(state.magicAttack.cooldownFramesRemaining).toBe(0);
   });
 
-  it('keeps the player responsive while slowing world projectiles', () => {
+  it('freezes the world for ten seconds and replays the record for two seconds', () => {
     const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    swordsman.action = 'recovering';
+    swordsman.actionFramesRemaining = 30;
+    state.ultimate.charge.current = ULTIMATE_MAX_CHARGE;
+    const startPlayerX = state.player.x;
     const inputSource = new TestInputSource({
       ...IDLE_INPUT,
       moveX: 1,
-      primaryPressed: true,
-      slowHeld: true,
-      weaponSlotPressed: 1,
+      ultimatePressed: true,
     });
-    const startPlayerX = state.player.x;
 
     runFrame(state, inputSource, 1);
 
-    const arrow = state.projectiles[0]!;
-    const arrowSpawnX =
-      startPlayerX +
-      PLAYER_MOVE_SPEED * FIXED_STEP_SECONDS +
-      PLAYER_RADIUS +
-      BOW_PROJECTILE_RADIUS +
-      2;
-
-    expect(state.slow.active).toBe(true);
+    expect(state.ultimate.phase).toBe('recording');
+    expect(state.ultimate.charge.current).toBe(0);
     expect(state.player.x).toBeCloseTo(
       startPlayerX + PLAYER_MOVE_SPEED * FIXED_STEP_SECONDS,
     );
-    expect(arrow.x).toBeCloseTo(
-      arrowSpawnX +
-        BOW_PROJECTILE_SPEED * FIXED_STEP_SECONDS * SLOW_WORLD_TIME_SCALE,
+    expect(swordsman.actionFramesRemaining).toBe(30);
+    expect(state.ultimate.recordedFrames).toHaveLength(1);
+
+    inputSource.setInput(IDLE_INPUT);
+    for (let frame = 2; frame <= ULTIMATE_RECORD_FRAMES; frame += 1) {
+      runFrame(state, inputSource, frame);
+    }
+
+    expect(state.ultimate.phase).toBe('replaying');
+    expect(state.ultimate.recordedFrames).toHaveLength(
+      ULTIMATE_RECORD_FRAMES,
     );
+    expect(swordsman.actionFramesRemaining).toBe(30);
+
+    inputSource.setInput({ ...IDLE_INPUT, moveX: -1 });
+    const replayPlayerX = state.player.x;
+    for (
+      let frame = ULTIMATE_RECORD_FRAMES + 1;
+      frame <= ULTIMATE_RECORD_FRAMES + ULTIMATE_REPLAY_FRAMES;
+      frame += 1
+    ) {
+      runFrame(state, inputSource, frame);
+    }
+
+    expect(state.ultimate.phase).toBe('inactive');
+    expect(state.ultimate.recordedFrames).toHaveLength(0);
+    expect(state.player.x).toBe(replayPlayerX);
+    expect(swordsman.actionFramesRemaining).toBe(30);
   });
 
-  it('teleports toward the cursor without requiring slow', () => {
+  it('ends recording on a second ultimate press and replays at five times speed', () => {
+    const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    swordsman.action = 'recovering';
+    swordsman.actionFramesRemaining = 30;
+    state.ultimate.charge.current = ULTIMATE_MAX_CHARGE;
+    const inputSource = new TestInputSource({
+      ...IDLE_INPUT,
+      ultimatePressed: true,
+    });
+
+    runFrame(state, inputSource, 1);
+    inputSource.setInput(IDLE_INPUT);
+    for (let frame = 2; frame <= 10; frame += 1) {
+      runFrame(state, inputSource, frame);
+    }
+
+    inputSource.setInput({ ...IDLE_INPUT, ultimatePressed: true });
+    runFrame(state, inputSource, 11);
+
+    expect(state.ultimate.phase).toBe('replaying');
+    expect(state.ultimate.recordedFrames).toHaveLength(10);
+    expect(state.ultimate.replayFramesTotal).toBe(
+      Math.ceil(10 / ULTIMATE_REPLAY_SPEED),
+    );
+    expect(swordsman.actionFramesRemaining).toBe(30);
+
+    inputSource.setInput({ ...IDLE_INPUT, moveX: 1 });
+    const stoppedPlayerX = state.player.x;
+    runFrame(state, inputSource, 12);
+
+    expect(state.ultimate.phase).toBe('replaying');
+    expect(state.player.x).toBe(stoppedPlayerX);
+    expect(swordsman.actionFramesRemaining).toBe(30);
+
+    runFrame(state, inputSource, 13);
+
+    expect(state.ultimate.phase).toBe('inactive');
+    expect(state.player.x).toBe(stoppedPlayerX);
+    expect(swordsman.actionFramesRemaining).toBe(30);
+  });
+
+  it('defers longsword damage, hit feedback, and death until replay', () => {
+    const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    state.player.x = 300;
+    state.player.y = ARENA_HEIGHT / 2;
+    swordsman.x = state.player.x + 100;
+    swordsman.y = state.player.y;
+    swordsman.health.current = LONGSWORD_DAMAGE;
+    swordsman.action = 'recovering';
+    swordsman.actionFramesRemaining = 30;
+    state.ultimate.charge.current = ULTIMATE_MAX_CHARGE;
+    const inputSource = new TestInputSource({
+      ...IDLE_INPUT,
+      primaryPressed: true,
+      ultimatePressed: true,
+    });
+
+    let frame = 1;
+    runFrame(state, inputSource, frame);
+    inputSource.setInput(IDLE_INPUT);
+    while (
+      state.ultimate.hitEvents.length === 0 &&
+      frame < LONGSWORD_ACTIVE_FRAMES
+    ) {
+      frame += 1;
+      runFrame(state, inputSource, frame);
+    }
+
+    expect(state.ultimate.hitEvents).toHaveLength(1);
+    expect(swordsman.health.current).toBe(LONGSWORD_DAMAGE);
+    expect(swordsman.action).toBe('recovering');
+    expect(swordsman.hitCount).toBe(0);
+    expect(swordsman.hitFlashFramesRemaining).toBe(0);
+    expect(state.player.hitStopFramesRemaining).toBe(0);
+
+    frame += 1;
+    inputSource.setInput({ ...IDLE_INPUT, ultimatePressed: true });
+    runFrame(state, inputSource, frame);
+
+    expect(state.ultimate.phase).toBe('replaying');
+    expect(swordsman.health.current).toBe(LONGSWORD_DAMAGE);
+
+    frame += 1;
+    inputSource.setInput(IDLE_INPUT);
+    runFrame(state, inputSource, frame);
+
+    expect(state.ultimate.phase).toBe('inactive');
+    expect(swordsman.health.current).toBe(0);
+    expect(swordsman.action).toBe('dead');
+    expect(swordsman.hitCount).toBe(1);
+    expect(swordsman.hitStopFramesRemaining).toBe(0);
+  });
+
+  it('does not push frozen enemies while the player moves during time stop', () => {
+    const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    swordsman.x = state.player.x + PLAYER_RADIUS + SWORDSMAN_RADIUS;
+    swordsman.y = state.player.y;
+    const swordsmanX = swordsman.x;
+    state.ultimate.charge.current = ULTIMATE_MAX_CHARGE;
+    const inputSource = new TestInputSource({
+      ...IDLE_INPUT,
+      moveX: 1,
+      ultimatePressed: true,
+    });
+
+    runFrame(state, inputSource, 1);
+
+    expect(swordsman.x).toBe(swordsmanX);
+    expect(
+      Math.hypot(
+        swordsman.x - state.player.x,
+        swordsman.y - state.player.y,
+      ),
+    ).toBeGreaterThanOrEqual(PLAYER_RADIUS + SWORDSMAN_RADIUS - 0.001);
+  });
+
+  it('teleports toward the cursor', () => {
     const state = createInitialGameState();
     const startX = state.player.x;
     const inputSource = new TestInputSource({
@@ -361,6 +502,8 @@ describe('updateGame', () => {
     expect(state.teleport.cooldownFramesRemaining).toBe(
       TELEPORT_COOLDOWN_FRAMES,
     );
+    expect(state.teleport.echo.x).toBe(startX);
+    expect(state.teleport.echo.framesRemaining).toBeGreaterThan(0);
   });
 
   it('buffers a primary press made during player hit stop', () => {
@@ -501,41 +644,6 @@ describe('updateGame', () => {
     }
   });
 
-  it('slows target hit stop without slowing player timers or mana drain', () => {
-    const state = createInitialGameState();
-    const inputSource = new TestInputSource({
-      ...IDLE_INPUT,
-      slowHeld: true,
-    });
-    getSwordsman(state).hitStopFramesRemaining = HIT_STOP_FRAMES;
-    state.bowAttack.cooldownFramesRemaining = 2;
-    const startMana = state.player.mana.current;
-
-    runFrame(state, inputSource, 1);
-
-    expect(getSwordsman(state).hitStopFramesRemaining).toBe(
-      HIT_STOP_FRAMES - SLOW_WORLD_TIME_SCALE,
-    );
-    expect(state.bowAttack.cooldownFramesRemaining).toBe(1);
-    expect(state.player.mana.current).toBeCloseTo(
-      startMana - SLOW_MP_DRAIN_PER_SECOND * FIXED_STEP_SECONDS,
-    );
-  });
-
-  it('slows the target hit-flash timer', () => {
-    const state = createInitialGameState();
-    const inputSource = new TestInputSource({
-      ...IDLE_INPUT,
-      slowHeld: true,
-    });
-    getSwordsman(state).hitFlashFramesRemaining = HIT_FLASH_FRAMES;
-
-    runFrame(state, inputSource, 1);
-
-    expect(getSwordsman(state).hitFlashFramesRemaining).toBe(
-      HIT_FLASH_FRAMES - SLOW_WORLD_TIME_SCALE,
-    );
-  });
 });
 
 function runFrame(

@@ -1,3 +1,4 @@
+import { separateLivingEnemies } from './actorCollision';
 import type { GameState } from './GameState';
 import { updateArcher } from './archer';
 import { updateEnemyHitState } from './enemyState';
@@ -7,22 +8,23 @@ import { updateSwordsman } from './swordsman';
 export function updateEnemies(
   state: GameState,
   dt: number,
-  worldTimeScale: number,
 ): void {
-  updateFormation(state, worldTimeScale);
+  updateFormation(state);
 
   for (const enemy of state.enemies) {
-    if (updateEnemyHitState(enemy, worldTimeScale)) {
+    if (updateEnemyHitState(enemy)) {
       continue;
     }
 
     switch (enemy.kind) {
       case 'swordsman':
-        updateSwordsman(state, enemy, dt, worldTimeScale);
+        updateSwordsman(state, enemy, dt);
         break;
       case 'archer':
-        updateArcher(state, enemy, dt, worldTimeScale);
+        updateArcher(state, enemy, dt);
         break;
     }
   }
+
+  separateLivingEnemies(state);
 }

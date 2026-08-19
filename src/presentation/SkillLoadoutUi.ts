@@ -1,7 +1,12 @@
 import Phaser from 'phaser';
 
-import { ARENA_WIDTH } from '../content/tuning';
+import {
+  ARENA_WIDTH,
+  ULTIMATE_RECORD_FRAMES,
+  ULTIMATE_REPLAY_SPEED,
+} from '../content/tuning';
 import { FIXED_STEP_SECONDS } from '../core/GameClock';
+import type { UltimatePhase } from '../game/GameState';
 import {
   PLAYTEST_SKILL_LABELS,
   SKILL_SLOT_IDS,
@@ -11,16 +16,17 @@ import {
   type SkillSlotId,
 } from './SkillBindings';
 import type { PhaserInputSource } from './PhaserInputSource';
+import { VISUAL_PALETTE } from './visualTheme';
 
-const PLAYTEST_SKILLS: PlaytestSkillId[] = ['slow', 'teleport'];
+const PLAYTEST_SKILLS: PlaytestSkillId[] = ['teleport', 'ultimate'];
 const SLOT_WIDTH = 116;
 const SLOT_HEIGHT = 54;
 const SLOT_GAP = 8;
 const SLOT_Y = 503;
-const EMPTY_SLOT_COLOR = 0x20283a;
-const SLOW_SLOT_COLOR = 0x4d5f9f;
-const TELEPORT_SLOT_COLOR = 0x52648f;
-const ACTIVE_SLOT_COLOR = 0x7188e8;
+const EMPTY_SLOT_COLOR = VISUAL_PALETTE.softInk;
+const TELEPORT_SLOT_COLOR = 0x4d5680;
+const ULTIMATE_SLOT_COLOR = 0x654482;
+const ACTIVE_SLOT_COLOR = VISUAL_PALETTE.ultimateRecord;
 const WINDOW_DEPTH = 100;
 
 interface SlotView {
@@ -59,14 +65,23 @@ export class SkillLoadoutUi {
     scene.input.on('dragend', this.onDragEnd, this);
   }
 
-  render(slowActive: boolean, teleportCooldownFrames: number): void {
+  render(
+    teleportCooldownFrames: number,
+    ultimateCharge: number,
+    ultimateMaximumCharge: number,
+    ultimatePhase: UltimatePhase,
+    ultimatePhaseFrames: number,
+  ): void {
     for (const slotId of SKILL_SLOT_IDS) {
       const view = this.slotViews.get(slotId)!;
       const skillId = this.skillBindings.getSkill(slotId);
       const skillStatus = formatSkillStatus(
         skillId,
-        slowActive,
         teleportCooldownFrames,
+        ultimateCharge,
+        ultimateMaximumCharge,
+        ultimatePhase,
+        ultimatePhaseFrames,
       );
 
       view.text.setText(
@@ -96,7 +111,7 @@ export class SkillLoadoutUi {
     this.scene.add
       .text(startX - SLOT_WIDTH / 2 - 12, SLOT_Y, 'TAB\nSKILLS', {
         align: 'right',
-        color: '#aeb9d6',
+        color: '#96a5bd',
         fontFamily: 'monospace',
         fontSize: '13px',
       })
@@ -107,7 +122,7 @@ export class SkillLoadoutUi {
       const x = startX + index * (SLOT_WIDTH + SLOT_GAP);
       const rectangle = this.scene.add
         .rectangle(x, SLOT_Y, SLOT_WIDTH, SLOT_HEIGHT, EMPTY_SLOT_COLOR, 0.94)
-        .setStrokeStyle(2, 0x7d8aa8, 0.9)
+        .setStrokeStyle(2, VISUAL_PALETTE.wallEdge, 0.9)
         .setInteractive({ dropZone: true })
         .setDepth(WINDOW_DEPTH);
       rectangle.setData('skillSlotId', slotId);
@@ -128,13 +143,13 @@ export class SkillLoadoutUi {
 
   private createSkillWindow(): void {
     const background = this.scene.add
-      .rectangle(480, 270, 500, 270, 0x111827, 0.98)
-      .setStrokeStyle(3, 0x8093c9, 1)
+      .rectangle(480, 270, 500, 270, VISUAL_PALETTE.floor, 0.98)
+      .setStrokeStyle(3, VISUAL_PALETTE.wallEdge, 1)
       .setInteractive()
       .setDepth(WINDOW_DEPTH + 10);
     const title = this.scene.add
       .text(480, 170, 'SKILL LOADOUT', {
-        color: '#ffffff',
+        color: '#e7edf7',
         fontFamily: 'monospace',
         fontSize: '24px',
       })
@@ -143,7 +158,7 @@ export class SkillLoadoutUi {
     const instruction = this.scene.add
       .text(480, 205, 'Drag a skill onto Q / E / R / SPACE / RMB\nTAB: close', {
         align: 'center',
-        color: '#b8c4df',
+        color: '#96a5bd',
         fontFamily: 'monospace',
         fontSize: '14px',
       })
@@ -157,10 +172,10 @@ export class SkillLoadoutUi {
       const y = 290;
       const tileBackground = this.scene.add
         .rectangle(0, 0, 180, 82, skillColor(skillId), 1)
-        .setStrokeStyle(2, 0xd9e2ff, 0.9);
+        .setStrokeStyle(2, VISUAL_PALETTE.text, 0.9);
       const tileTitle = this.scene.add
         .text(0, -14, PLAYTEST_SKILL_LABELS[skillId], {
-          color: '#ffffff',
+          color: '#e7edf7',
           fontFamily: 'monospace',
           fontSize: '18px',
         })
@@ -168,7 +183,7 @@ export class SkillLoadoutUi {
       const tileDescription = this.scene.add
         .text(0, 15, skillDescription(skillId), {
           align: 'center',
-          color: '#dbe4ff',
+          color: '#c6d1e3',
           fontFamily: 'monospace',
           fontSize: '11px',
         })
@@ -246,16 +261,37 @@ export class SkillLoadoutUi {
 
 function formatSkillStatus(
   skillId: PlaytestSkillId | null,
-  slowActive: boolean,
   teleportCooldownFrames: number,
+  ultimateCharge: number,
+  ultimateMaximumCharge: number,
+  ultimatePhase: UltimatePhase,
+  ultimatePhaseFrames: number,
 ): { color: number; label: string } {
   if (skillId === null) {
     return { color: EMPTY_SLOT_COLOR, label: 'EMPTY' };
   }
-  if (skillId === 'slow') {
+  if (skillId === 'ultimate') {
+    if (ultimatePhase === 'recording') {
+      return {
+        color: ACTIVE_SLOT_COLOR,
+        label: `STOP ${(ultimatePhaseFrames * FIXED_STEP_SECONDS).toFixed(1)}s`,
+      };
+    }
+    if (ultimatePhase === 'replaying') {
+      return { color: ACTIVE_SLOT_COLOR, label: 'ECHO REPLAY' };
+    }
+    const chargePercent = Math.floor(
+      (ultimateCharge / ultimateMaximumCharge) * 100,
+    );
     return {
-      color: slowActive ? ACTIVE_SLOT_COLOR : SLOW_SLOT_COLOR,
-      label: PLAYTEST_SKILL_LABELS.slow,
+      color:
+        ultimateCharge >= ultimateMaximumCharge
+          ? ACTIVE_SLOT_COLOR
+          : ULTIMATE_SLOT_COLOR,
+      label:
+        ultimateCharge >= ultimateMaximumCharge
+          ? 'TIME STOP READY'
+          : `TIME STOP ${chargePercent}%`,
     };
   }
   if (teleportCooldownFrames === 0) {
@@ -271,11 +307,14 @@ function formatSkillStatus(
 }
 
 function skillColor(skillId: PlaytestSkillId): number {
-  return skillId === 'slow' ? SLOW_SLOT_COLOR : TELEPORT_SLOT_COLOR;
+  return skillId === 'ultimate'
+    ? ULTIMATE_SLOT_COLOR
+    : TELEPORT_SLOT_COLOR;
 }
 
 function skillDescription(skillId: PlaytestSkillId): string {
-  return skillId === 'slow'
-    ? 'Hold to slow world time'
+  return skillId === 'ultimate'
+    ? `Up to ${ULTIMATE_RECORD_FRAMES * FIXED_STEP_SECONDS}s\n` +
+        `Press again: ${ULTIMATE_REPLAY_SPEED}x replay`
     : 'Blink toward the cursor';
 }

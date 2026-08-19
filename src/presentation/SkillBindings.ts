@@ -7,7 +7,7 @@ export const SKILL_SLOT_IDS = [
 ] as const;
 
 export type SkillSlotId = (typeof SKILL_SLOT_IDS)[number];
-export type PlaytestSkillId = 'slow' | 'teleport';
+export type PlaytestSkillId = 'teleport' | 'ultimate';
 
 export const SKILL_SLOT_LABELS: Record<SkillSlotId, string> = {
   q: 'Q',
@@ -18,8 +18,8 @@ export const SKILL_SLOT_LABELS: Record<SkillSlotId, string> = {
 };
 
 export const PLAYTEST_SKILL_LABELS: Record<PlaytestSkillId, string> = {
-  slow: 'SLOW',
   teleport: 'TELEPORT',
+  ultimate: 'TIME STOP',
 };
 
 type SkillSlots = Record<SkillSlotId, PlaytestSkillId | null>;
@@ -28,8 +28,8 @@ export class SkillBindings {
   private readonly slots: SkillSlots = {
     q: null,
     e: null,
-    r: null,
-    space: 'slow',
+    r: 'ultimate',
+    space: null,
     mouseRight: 'teleport',
   };
 

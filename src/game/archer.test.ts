@@ -8,7 +8,6 @@ import {
   ARCHER_RECOVERY_FRAMES,
   ARCHER_WINDUP_FRAMES,
   BOW_PROJECTILE_SPEED,
-  SLOW_WORLD_TIME_SCALE,
 } from '../content/tuning';
 import { FIXED_STEP_SECONDS } from '../core/GameClock';
 import { updateArcher } from './archer';
@@ -30,7 +29,7 @@ describe('archer', () => {
     farState.formation.lastKnownPlayerY = farState.player.y;
     const farStartX = farArcher.x;
 
-    updateArcher(farState, farArcher, FIXED_STEP_SECONDS, 1);
+    updateArcher(farState, farArcher, FIXED_STEP_SECONDS);
 
     expect(farArcher.x).toBeCloseTo(
       farStartX - ARCHER_MOVE_SPEED * FIXED_STEP_SECONDS,
@@ -45,7 +44,7 @@ describe('archer', () => {
     nearState.formation.lastKnownPlayerY = nearState.player.y;
     const nearStartX = nearArcher.x;
 
-    updateArcher(nearState, nearArcher, FIXED_STEP_SECONDS, 1);
+    updateArcher(nearState, nearArcher, FIXED_STEP_SECONDS);
 
     expect(nearArcher.x).toBeGreaterThan(nearStartX);
   });
@@ -59,14 +58,14 @@ describe('archer', () => {
     state.formation.lastKnownPlayerX = state.player.x;
     state.formation.lastKnownPlayerY = state.player.y;
 
-    updateArcher(state, archer, FIXED_STEP_SECONDS, 1);
+    updateArcher(state, archer, FIXED_STEP_SECONDS);
     expect(archer.action).toBe('windup');
     expect(archer.actionFramesRemaining).toBe(ARCHER_WINDUP_FRAMES);
     expect(archer.aimX).toBe(-1);
 
     state.player.y += 100;
     for (let frame = 0; frame < ARCHER_WINDUP_FRAMES; frame += 1) {
-      updateArcher(state, archer, FIXED_STEP_SECONDS, 1);
+      updateArcher(state, archer, FIXED_STEP_SECONDS);
     }
 
     expect(archer.action).toBe('recovering');
@@ -93,18 +92,17 @@ describe('archer', () => {
     archer.actionFramesRemaining = ARCHER_WINDUP_FRAMES;
     const startHealth = state.player.health.current;
 
-    updateArcher(state, archer, FIXED_STEP_SECONDS, 1);
+    updateArcher(state, archer, FIXED_STEP_SECONDS);
     expect(state.projectiles).toHaveLength(0);
 
     archer.actionFramesRemaining = 1;
-    updateArcher(state, archer, FIXED_STEP_SECONDS, 1);
+    updateArcher(state, archer, FIXED_STEP_SECONDS);
     for (let frame = 0; frame < 10 && state.projectiles.length > 0; frame += 1) {
       updateProjectiles(
         state,
         state.player.x,
         state.player.y,
         FIXED_STEP_SECONDS,
-        1,
       );
     }
 
@@ -114,22 +112,89 @@ describe('archer', () => {
     );
   });
 
-  it('slows the archer windup with the rest of the world', () => {
+  it('retains a valid tactical angle while the shared target moves', () => {
     const state = createInitialGameState();
+    state.formation.phase = 'searching';
+    state.formation.lastKnownPlayerX = 700;
+    state.formation.lastKnownPlayerY = 270;
     const archer = getArcher(state);
-    archer.action = 'windup';
-    archer.actionFramesRemaining = ARCHER_WINDUP_FRAMES;
+    archer.x = 526;
+    archer.y = 270;
 
-    updateArcher(
-      state,
-      archer,
-      FIXED_STEP_SECONDS,
-      SLOW_WORLD_TIME_SCALE,
-    );
+    updateArcher(state, archer, FIXED_STEP_SECONDS);
+    const selectedAngle = archer.tacticalAngle;
 
-    expect(archer.actionFramesRemaining).toBe(
-      ARCHER_WINDUP_FRAMES - SLOW_WORLD_TIME_SCALE,
-    );
+    expect(selectedAngle).not.toBeNull();
+
+    state.formation.lastKnownPlayerX += 2;
+    state.formation.lastKnownPlayerY += 2;
+    updateArcher(state, archer, FIXED_STEP_SECONDS);
+
+    expect(archer.tacticalAngle).toBe(selectedAngle);
+  });
+
+  it('reselects its tactical angle when the retained position is blocked', () => {
+    const state = createInitialGameState();
+    state.formation.phase = 'searching';
+    state.formation.lastKnownPlayerX = 700;
+    state.formation.lastKnownPlayerY = 270;
+    const archer = getArcher(state);
+    archer.x = 526;
+    archer.y = 270;
+
+    updateArcher(state, archer, FIXED_STEP_SECONDS);
+    const selectedAngle = archer.tacticalAngle;
+
+    state.formation.lastKnownPlayerY = 200;
+    updateArcher(state, archer, FIXED_STEP_SECONDS);
+
+    expect(archer.tacticalAngle).not.toBeNull();
+    expect(archer.tacticalAngle).not.toBe(selectedAngle);
+  });
+
+  it('converges into firing range without reversing between tactical slots', () => {
+    const state = createInitialGameState();
+    state.formation.phase = 'engaged';
+    const archer = getArcher(state);
+    archer.x = 526;
+    archer.y = 270;
+    let previousDirection: { x: number; y: number } | null = null;
+    let reversalCount = 0;
+
+    for (let frame = 0; frame < 360; frame += 1) {
+      const angle = (frame / 360) * Math.PI * 2;
+      state.player.x = 700 + Math.cos(angle) * 20;
+      state.player.y = 270 + Math.sin(angle) * 20;
+      state.formation.lastKnownPlayerX = state.player.x;
+      state.formation.lastKnownPlayerY = state.player.y;
+      const startX = archer.x;
+      const startY = archer.y;
+
+      updateArcher(state, archer, FIXED_STEP_SECONDS);
+
+      const movementX = archer.x - startX;
+      const movementY = archer.y - startY;
+      const movementDistance = Math.hypot(movementX, movementY);
+      if (movementDistance === 0) {
+        continue;
+      }
+      const direction = {
+        x: movementX / movementDistance,
+        y: movementY / movementDistance,
+      };
+      if (
+        previousDirection !== null &&
+        direction.x * previousDirection.x +
+          direction.y * previousDirection.y <
+          -0.9
+      ) {
+        reversalCount += 1;
+      }
+      previousDirection = direction;
+    }
+
+    expect(reversalCount).toBeLessThanOrEqual(1);
+    expect(state.projectiles.length).toBeGreaterThan(0);
   });
 });
 

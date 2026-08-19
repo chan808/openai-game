@@ -1,6 +1,8 @@
 import {
   PLAYER_RADIUS,
   TELEPORT_COOLDOWN_FRAMES,
+  TELEPORT_ECHO_DURATION_FRAMES,
+  TELEPORT_ECHO_ULTIMATE_CHARGE,
   TELEPORT_MAX_DISTANCE,
 } from '../content/tuning';
 import { getEnemyRadius } from './enemyState';
@@ -56,6 +58,9 @@ export function tryTeleport(
     return false;
   }
 
+  state.teleport.echo.x = state.player.x;
+  state.teleport.echo.y = state.player.y;
+  state.teleport.echo.framesRemaining = TELEPORT_ECHO_DURATION_FRAMES;
   state.player.x = destination.destinationX;
   state.player.y = destination.destinationY;
   state.teleport.cooldownFramesRemaining = TELEPORT_COOLDOWN_FRAMES;
@@ -69,8 +74,24 @@ export function tickTeleportCooldown(state: GameState): void {
   );
 }
 
-export function resetTeleportCooldown(state: GameState): void {
-  state.teleport.cooldownFramesRemaining = 0;
+export function tickTeleportEcho(state: GameState): void {
+  state.teleport.echo.framesRemaining = Math.max(
+    0,
+    state.teleport.echo.framesRemaining - 1,
+  );
+}
+
+export function consumeTeleportEcho(state: GameState): boolean {
+  if (state.teleport.echo.framesRemaining === 0) {
+    return false;
+  }
+
+  state.teleport.echo.framesRemaining = 0;
+  state.ultimate.charge.current = Math.min(
+    state.ultimate.charge.maximum,
+    state.ultimate.charge.current + TELEPORT_ECHO_ULTIMATE_CHARGE,
+  );
+  return true;
 }
 
 export function getTeleportDestination(

@@ -7,13 +7,13 @@ import {
   NORTHWEST_PILLAR_X,
   NORTHWEST_PILLAR_Y,
   PLAYER_RADIUS,
-  SLOW_WORLD_TIME_SCALE,
   SWORDSMAN_ATTACK_DAMAGE,
   SWORDSMAN_MAX_HP,
   SWORDSMAN_MOVE_SPEED,
   SWORDSMAN_RADIUS,
   SWORDSMAN_RESPAWN_FRAMES,
   SWORDSMAN_WINDUP_FRAMES,
+  TELEPORT_ECHO_ULTIMATE_CHARGE,
 } from '../content/tuning';
 import { FIXED_STEP_SECONDS } from '../core/GameClock';
 import { damageEnemy } from './enemyState';
@@ -27,36 +27,20 @@ import {
   swordsmanAttackIntersectsPlayer,
   updateSwordsman,
 } from './swordsman';
+import { tryTeleport } from './teleport';
 
 describe('swordsman', () => {
-  it('chases the player using world-scaled fixed-step movement', () => {
-    const normalState = createInitialGameState();
-    const slowedState = createInitialGameState();
-    normalState.formation.phase = 'engaged';
-    slowedState.formation.phase = 'engaged';
-    const normalSwordsman = getSwordsman(normalState);
-    const slowedSwordsman = getSwordsman(slowedState);
-    normalSwordsman.y = normalState.player.y;
-    slowedSwordsman.y = slowedState.player.y;
-    const normalStartX = normalSwordsman.x;
-    const slowedStartX = slowedSwordsman.x;
+  it('chases the player using fixed-step movement', () => {
+    const state = createInitialGameState();
+    state.formation.phase = 'engaged';
+    const swordsman = getSwordsman(state);
+    swordsman.y = state.player.y;
+    const startX = swordsman.x;
 
-    updateSwordsman(normalState, normalSwordsman, FIXED_STEP_SECONDS, 1);
-    updateSwordsman(
-      slowedState,
-      slowedSwordsman,
-      FIXED_STEP_SECONDS,
-      SLOW_WORLD_TIME_SCALE,
-    );
+    updateSwordsman(state, swordsman, FIXED_STEP_SECONDS);
 
-    expect(normalSwordsman.x).toBeCloseTo(
-      normalStartX - SWORDSMAN_MOVE_SPEED * FIXED_STEP_SECONDS,
-    );
-    expect(slowedSwordsman.x).toBeCloseTo(
-      slowedStartX -
-        SWORDSMAN_MOVE_SPEED *
-          FIXED_STEP_SECONDS *
-          SLOW_WORLD_TIME_SCALE,
+    expect(swordsman.x).toBeCloseTo(
+      startX - SWORDSMAN_MOVE_SPEED * FIXED_STEP_SECONDS,
     );
   });
 
@@ -67,7 +51,7 @@ describe('swordsman', () => {
     swordsman.x = state.player.x + 70;
     swordsman.y = state.player.y;
 
-    updateSwordsman(state, swordsman, FIXED_STEP_SECONDS, 1);
+    updateSwordsman(state, swordsman, FIXED_STEP_SECONDS);
 
     expect(swordsman.action).toBe('windup');
     expect(swordsman.actionFramesRemaining).toBe(SWORDSMAN_WINDUP_FRAMES);
@@ -75,7 +59,7 @@ describe('swordsman', () => {
     expect(swordsman.aimY).toBe(0);
 
     state.player.y += 100;
-    updateSwordsman(state, swordsman, FIXED_STEP_SECONDS, 1);
+    updateSwordsman(state, swordsman, FIXED_STEP_SECONDS);
 
     expect(swordsman.aimX).toBe(-1);
     expect(swordsman.aimY).toBe(0);
@@ -92,13 +76,40 @@ describe('swordsman', () => {
     swordsman.actionFramesRemaining = 3;
     const startHealth = state.player.health.current;
 
-    updateSwordsman(state, swordsman, FIXED_STEP_SECONDS, 1);
-    updateSwordsman(state, swordsman, FIXED_STEP_SECONDS, 1);
+    updateSwordsman(state, swordsman, FIXED_STEP_SECONDS);
+    updateSwordsman(state, swordsman, FIXED_STEP_SECONDS);
 
     expect(state.player.health.current).toBe(
       startHealth - SWORDSMAN_ATTACK_DAMAGE,
     );
     expect(state.player.hitStopFramesRemaining).toBe(HIT_STOP_FRAMES);
+  });
+
+  it('spends a committed attack on a teleport echo and charges the ultimate', () => {
+    const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    const startHealth = state.player.health.current;
+    const echoX = state.player.x;
+    const echoY = state.player.y;
+    swordsman.x = echoX + 70;
+    swordsman.y = echoY;
+    swordsman.aimX = -1;
+    swordsman.aimY = 0;
+    swordsman.action = 'attacking';
+    swordsman.actionFramesRemaining = 3;
+    state.teleport.destinationX = echoX;
+    state.teleport.destinationY = echoY + 100;
+
+    expect(tryTeleport(state, true)).toBe(true);
+    updateSwordsman(state, swordsman, FIXED_STEP_SECONDS);
+
+    expect(state.player.health.current).toBe(startHealth);
+    expect(state.teleport.echo.framesRemaining).toBe(0);
+    expect(state.ultimate.charge.current).toBe(
+      TELEPORT_ECHO_ULTIMATE_CHARGE,
+    );
+    expect(swordsman.hitPlayer).toBe(true);
+    expect(swordsman.hitStopFramesRemaining).toBe(HIT_STOP_FRAMES);
   });
 
   it('does not hit the player through a pillar', () => {
@@ -125,7 +136,7 @@ describe('swordsman', () => {
     expect(swordsman.health.current).toBe(0);
 
     for (let frame = 0; frame < SWORDSMAN_RESPAWN_FRAMES; frame += 1) {
-      updateEnemies(state, FIXED_STEP_SECONDS, 1);
+      updateEnemies(state, FIXED_STEP_SECONDS);
     }
 
     expect(swordsman.action).toBe('chasing');

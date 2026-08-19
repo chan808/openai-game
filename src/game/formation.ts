@@ -16,10 +16,7 @@ export interface FormationAnchor {
   y: number;
 }
 
-export function updateFormation(
-  state: GameState,
-  worldTimeScale = 1,
-): void {
+export function updateFormation(state: GameState): void {
   const enemyHitCount = state.enemies.reduce(
     (total, enemy) => total + enemy.hitCount,
     0,
@@ -36,7 +33,7 @@ export function updateFormation(
     state.formation.lastKnownPlayerY = state.player.y;
     state.formation.searchFramesRemaining = SQUAD_SEARCH_FRAMES;
   } else {
-    updateUnseenFormation(state, worldTimeScale);
+    updateUnseenFormation(state);
   }
 
   state.formation.observedEnemyHitCount = enemyHitCount;
@@ -97,10 +94,7 @@ export function getFormationAnchor(enemy: EnemyState): FormationAnchor {
   }
 }
 
-function updateUnseenFormation(
-  state: GameState,
-  worldTimeScale: number,
-): void {
+function updateUnseenFormation(state: GameState): void {
   switch (state.formation.phase) {
     case 'holding':
     case 'returning':
@@ -121,7 +115,7 @@ function updateUnseenFormation(
       }
       state.formation.searchFramesRemaining = Math.max(
         0,
-        state.formation.searchFramesRemaining - worldTimeScale,
+        state.formation.searchFramesRemaining - 1,
       );
       if (state.formation.searchFramesRemaining === 0) {
         state.formation.phase = 'returning';

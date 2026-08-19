@@ -24,7 +24,7 @@ describe('enemy formation awareness', () => {
     const swordsman = getSwordsman(state);
     const archer = getArcher(state);
 
-    updateEnemies(state, FIXED_STEP_SECONDS, 1);
+    updateEnemies(state, FIXED_STEP_SECONDS);
 
     expect(state.formation.phase).toBe('holding');
     expect(swordsman.x).toBe(FORMATION_SWORDSMAN_HOLD_X);
@@ -108,7 +108,7 @@ describe('enemy formation awareness', () => {
     state.formation.lastKnownPlayerY = 400;
 
     for (let frame = 0; frame < 240; frame += 1) {
-      updateSwordsman(state, swordsman, FIXED_STEP_SECONDS, 1);
+      updateSwordsman(state, swordsman, FIXED_STEP_SECONDS);
     }
 
     expect(swordsman.x).toBeCloseTo(300);

@@ -17,7 +17,10 @@ import {
   PLAYER_MOVE_SPEED,
   PLAYER_RADIUS,
 } from '../content/tuning';
-import { separatePlayerAndLivingEnemies } from './actorCollision';
+import {
+  separatePlayerAndLivingEnemies,
+  separatePlayerFromFrozenEnemies,
+} from './actorCollision';
 import { damageEnemy, getEnemyRadius } from './enemyState';
 import { updateEnemies } from './enemies';
 import type { GameState, WeaponId } from './GameState';
@@ -30,14 +33,22 @@ import {
   spawnMagicProjectile,
   updateProjectiles,
 } from './projectiles';
-import { updateSlow } from './slow';
 import { getTerrainRayDistance, moveCircleAgainstTerrain } from './terrain';
 import {
-  resetTeleportCooldown,
+  tickTeleportEcho,
   tickTeleportCooldown,
   tryTeleport,
   updateTeleportDestination,
 } from './teleport';
+import {
+  finishUltimateRecording,
+  recordUltimateFrame,
+  recordUltimateHit,
+  tickUltimateRecording,
+  tickUltimateReplay,
+  tryActivateUltimate,
+  ultimateEnemyIsProjectedAlive,
+} from './ultimate';
 
 const PLAYTEST_WEAPON_SLOTS: Record<WeaponSlotId, WeaponId> = {
   0: 'longsword',
@@ -51,10 +62,28 @@ export function updateGame(
   step: SimulationStep,
 ): void {
   const input = inputSource.sample(step.frame);
+  const teleportEchoWasActive =
+    state.teleport.echo.framesRemaining > 0;
 
   state.frame = step.frame;
   updateSelectedWeapon(state, input.weaponSlotPressed);
-  const worldTimeScale = updateSlow(state, input.slowHeld, step.dt);
+  if (
+    state.ultimate.phase === 'recording' &&
+    input.ultimatePressed &&
+    finishUltimateRecording(state)
+  ) {
+    tickInputBuffer(state);
+    return;
+  }
+  tryActivateUltimate(state, input.ultimatePressed);
+
+  if (state.ultimate.phase === 'replaying') {
+    tickUltimateReplay(state);
+    tickInputBuffer(state);
+    return;
+  }
+
+  const ultimateRecording = state.ultimate.phase === 'recording';
 
   // Capture the start-of-tick state so the final remaining frame still freezes
   // the actor even though its timer reaches zero during this update.
@@ -66,12 +95,14 @@ export function updateGame(
     tickPlayerHitFlash(state);
   }
 
-  updateEnemies(state, step.dt, worldTimeScale);
+  if (!ultimateRecording) {
+    updateEnemies(state, step.dt);
+  }
 
   if (!playerIsHitStopped) {
     tickWeaponAttackTimers(state);
     tickTeleportCooldown(state);
-    updatePlayer(state, input, step.dt);
+    updatePlayer(state, input, step.dt, ultimateRecording);
     updateTeleportDestination(
       state,
       input.aimTargetX,
@@ -96,10 +127,16 @@ export function updateGame(
     input.aimTargetX,
     input.aimTargetY,
     step.dt,
-    worldTimeScale,
   );
-  separatePlayerAndLivingEnemies(state);
+  separatePlayerFromEnemies(state, ultimateRecording);
+  if (teleportEchoWasActive) {
+    tickTeleportEcho(state);
+  }
   tickInputBuffer(state);
+  if (ultimateRecording) {
+    recordUltimateFrame(state);
+    tickUltimateRecording(state);
+  }
 }
 
 function bufferHitStopInputs(
@@ -183,6 +220,7 @@ function updatePlayer(
   state: GameState,
   input: InputFrame,
   dt: number,
+  enemiesAreFrozen: boolean,
 ): void {
   const movement = moveCircleAgainstTerrain(
     state.player.x,
@@ -194,7 +232,7 @@ function updatePlayer(
 
   state.player.x = movement.x;
   state.player.y = movement.y;
-  separatePlayerAndLivingEnemies(state);
+  separatePlayerFromEnemies(state, enemiesAreFrozen);
 
   const aim = normalize(
     input.aimTargetX - state.player.x,
@@ -204,6 +242,17 @@ function updatePlayer(
     state.player.aimX = aim.x;
     state.player.aimY = aim.y;
   }
+}
+
+function separatePlayerFromEnemies(
+  state: GameState,
+  enemiesAreFrozen: boolean,
+): void {
+  if (enemiesAreFrozen) {
+    separatePlayerFromFrozenEnemies(state);
+    return;
+  }
+  separatePlayerAndLivingEnemies(state);
 }
 
 function normalize(x: number, y: number): { x: number; y: number } {
@@ -287,9 +336,11 @@ function updateLongswordAttack(
     LONGSWORD_BLADE_RADIUS,
   );
   let hitEnemy = false;
+  const ultimateRecording = state.ultimate.phase === 'recording';
   for (const enemy of state.enemies) {
     if (
       enemy.action === 'dead' ||
+      !ultimateEnemyIsProjectedAlive(state, enemy.id) ||
       attack.hitEnemyIds.includes(enemy.id) ||
       !longswordIntersectsCircle(
         state.player.x,
@@ -305,16 +356,18 @@ function updateLongswordAttack(
     }
 
     attack.hitEnemyIds.push(enemy.id);
-    damageEnemy(enemy, LONGSWORD_DAMAGE);
-    hitEnemy = true;
+    if (ultimateRecording) {
+      hitEnemy = recordUltimateHit(state, enemy.id, LONGSWORD_DAMAGE);
+    } else {
+      hitEnemy = damageEnemy(enemy, LONGSWORD_DAMAGE) || hitEnemy;
+    }
   }
 
-  if (hitEnemy) {
+  if (hitEnemy && !ultimateRecording) {
     state.player.hitStopFramesRemaining = Math.max(
       state.player.hitStopFramesRemaining,
       HIT_STOP_FRAMES,
     );
-    resetTeleportCooldown(state);
   }
   return attackStarted;
 }

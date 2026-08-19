@@ -3,13 +3,13 @@ import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
   PLAYER_MAX_HP,
-  PLAYER_MAX_MP,
   PLAYER_RADIUS,
   FORMATION_ARCHER_HOLD_X,
   FORMATION_ARCHER_HOLD_Y,
   FORMATION_SWORDSMAN_HOLD_X,
   FORMATION_SWORDSMAN_HOLD_Y,
   SWORDSMAN_MAX_HP,
+  ULTIMATE_MAX_CHARGE,
 } from '../content/tuning';
 
 export interface ResourceState {
@@ -23,7 +23,6 @@ export interface PlayerState {
   aimX: number;
   aimY: number;
   health: ResourceState;
-  mana: ResourceState;
   hitStopFramesRemaining: number;
   hitFlashFramesRemaining: number;
   invulnerabilityFramesRemaining: number;
@@ -83,6 +82,7 @@ export interface ArcherState {
   knockbackFramesRemaining: number;
   knockbackVelocityX: number;
   knockbackVelocityY: number;
+  tacticalAngle: number | null;
 }
 
 export type EnemyState = SwordsmanState | ArcherState;
@@ -112,13 +112,10 @@ export interface LongswordAttackState {
 export type WeaponId = 'longsword' | 'bow' | 'magic';
 export type ProjectileKind = 'arrow' | 'magic';
 export type ProjectileOwner = 'player' | 'enemy';
+export type ProjectileTimeDomain = 'world' | 'ultimate';
 
 export interface RangedAttackState {
   cooldownFramesRemaining: number;
-}
-
-export interface SlowState {
-  active: boolean;
 }
 
 export interface PlayerInputBufferState {
@@ -130,17 +127,70 @@ export interface TeleportState {
   cooldownFramesRemaining: number;
   destinationX: number;
   destinationY: number;
+  echo: {
+    x: number;
+    y: number;
+    framesRemaining: number;
+  };
 }
 
 export interface ProjectileState {
   id: number;
   owner: ProjectileOwner;
   kind: ProjectileKind;
+  timeDomain: ProjectileTimeDomain;
   x: number;
   y: number;
   velocityX: number;
   velocityY: number;
   framesRemaining: number;
+}
+
+export type UltimatePhase = 'inactive' | 'recording' | 'replaying';
+
+export interface UltimateRecordedProjectile {
+  id: number;
+  kind: ProjectileKind;
+  x: number;
+  y: number;
+  velocityX: number;
+  velocityY: number;
+}
+
+export interface UltimateHitEvent {
+  recordFrame: number;
+  enemyId: number;
+  damage: number;
+}
+
+export interface UltimateProjectedEnemyHealth {
+  enemyId: number;
+  current: number;
+}
+
+export interface UltimateRecordFrame {
+  x: number;
+  y: number;
+  aimX: number;
+  aimY: number;
+  longswordActive: boolean;
+  longswordAimX: number;
+  longswordAimY: number;
+  rangedAttackFired: 'bow' | 'magic' | null;
+  projectiles: UltimateRecordedProjectile[];
+}
+
+export interface UltimateState {
+  charge: ResourceState;
+  phase: UltimatePhase;
+  phaseFramesRemaining: number;
+  replayFramesTotal: number;
+  recordedFrames: UltimateRecordFrame[];
+  hitEvents: UltimateHitEvent[];
+  nextHitEventIndex: number;
+  projectedEnemyHealth: UltimateProjectedEnemyHealth[];
+  projectileLaunches: UltimateRecordedProjectile[];
+  pendingProjectiles: ProjectileState[];
 }
 
 export interface GameState {
@@ -152,9 +202,9 @@ export interface GameState {
   longswordAttack: LongswordAttackState;
   bowAttack: RangedAttackState;
   magicAttack: RangedAttackState;
-  slow: SlowState;
   inputBuffer: PlayerInputBufferState;
   teleport: TeleportState;
+  ultimate: UltimateState;
   nextProjectileId: number;
   projectiles: ProjectileState[];
 }
@@ -170,10 +220,6 @@ export function createInitialGameState(): GameState {
       health: {
         current: PLAYER_MAX_HP,
         maximum: PLAYER_MAX_HP,
-      },
-      mana: {
-        current: PLAYER_MAX_MP,
-        maximum: PLAYER_MAX_MP,
       },
       hitStopFramesRemaining: 0,
       hitFlashFramesRemaining: 0,
@@ -203,9 +249,6 @@ export function createInitialGameState(): GameState {
     magicAttack: {
       cooldownFramesRemaining: 0,
     },
-    slow: {
-      active: false,
-    },
     inputBuffer: {
       primaryFramesRemaining: 0,
       teleportFramesRemaining: 0,
@@ -214,6 +257,26 @@ export function createInitialGameState(): GameState {
       cooldownFramesRemaining: 0,
       destinationX: Math.max(PLAYER_RADIUS, ARENA_WIDTH * 0.25),
       destinationY: ARENA_HEIGHT * 0.5,
+      echo: {
+        x: Math.max(PLAYER_RADIUS, ARENA_WIDTH * 0.25),
+        y: ARENA_HEIGHT * 0.5,
+        framesRemaining: 0,
+      },
+    },
+    ultimate: {
+      charge: {
+        current: 0,
+        maximum: ULTIMATE_MAX_CHARGE,
+      },
+      phase: 'inactive',
+      phaseFramesRemaining: 0,
+      replayFramesTotal: 0,
+      recordedFrames: [],
+      hitEvents: [],
+      nextHitEventIndex: 0,
+      projectedEnemyHealth: [],
+      projectileLaunches: [],
+      pendingProjectiles: [],
     },
     nextProjectileId: 1,
     projectiles: [],
@@ -272,5 +335,6 @@ function createArcher(): ArcherState {
     knockbackFramesRemaining: 0,
     knockbackVelocityX: 0,
     knockbackVelocityY: 0,
+    tacticalAngle: null,
   };
 }

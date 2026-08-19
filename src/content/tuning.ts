@@ -14,7 +14,6 @@ export const SOUTHEAST_PILLAR_HEIGHT = 150;
 export const PLAYER_MOVE_SPEED = 240;
 export const PLAYER_RADIUS = 18;
 export const PLAYER_MAX_HP = 100;
-export const PLAYER_MAX_MP = 100;
 export const PLAYER_INVULNERABILITY_FRAMES = 30;
 export const PLAYER_HIT_KNOCKBACK_RADIUS = 150;
 export const PLAYER_HIT_KNOCKBACK_DISTANCE = 72;
@@ -59,12 +58,17 @@ export const ENEMY_NAVIGATION_WAYPOINTS = [
   { x: 640, y: 270 },
 ] as const;
 
-export const SLOW_WORLD_TIME_SCALE = 0.25;
-export const SLOW_MP_DRAIN_PER_SECOND = 25;
-export const MP_RECOVERY_PER_SECOND = 15;
-
 export const TELEPORT_MAX_DISTANCE = 240;
 export const TELEPORT_COOLDOWN_FRAMES = 90;
+export const TELEPORT_ECHO_DURATION_FRAMES = 30;
+export const TELEPORT_ECHO_ULTIMATE_CHARGE = 34;
+
+export const ULTIMATE_MAX_CHARGE = 100;
+export const ULTIMATE_RECORD_FRAMES = 600;
+export const ULTIMATE_REPLAY_SPEED = 5;
+export const ULTIMATE_REPLAY_FRAMES = Math.ceil(
+  ULTIMATE_RECORD_FRAMES / ULTIMATE_REPLAY_SPEED,
+);
 
 export const LONGSWORD_REACH = 180;
 export const LONGSWORD_BLADE_RADIUS = 8;

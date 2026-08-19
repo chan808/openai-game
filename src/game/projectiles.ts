@@ -22,25 +22,30 @@ import type {
   ProjectileState,
 } from './GameState';
 import { damagePlayer } from './playerDamage';
-import { resetTeleportCooldown } from './teleport';
+import { consumeTeleportEcho } from './teleport';
 import { segmentIntersectsTerrain } from './terrain';
+import {
+  recordUltimateHit,
+  registerUltimateProjectileLaunch,
+  ultimateEnemyIsProjectedAlive,
+} from './ultimate';
 
 export function spawnArrow(state: GameState): void {
-  state.projectiles.push(
-    createProjectile(
-      state,
-      'player',
-      'arrow',
-      state.player.x,
-      state.player.y,
-      state.player.aimX,
-      state.player.aimY,
-      PLAYER_RADIUS,
-      BOW_PROJECTILE_RADIUS,
-      BOW_PROJECTILE_SPEED,
-      BOW_PROJECTILE_LIFETIME_FRAMES,
-    ),
+  const projectile = createProjectile(
+    state,
+    'player',
+    'arrow',
+    state.player.x,
+    state.player.y,
+    state.player.aimX,
+    state.player.aimY,
+    PLAYER_RADIUS,
+    BOW_PROJECTILE_RADIUS,
+    BOW_PROJECTILE_SPEED,
+    BOW_PROJECTILE_LIFETIME_FRAMES,
   );
+  state.projectiles.push(projectile);
+  registerUltimateProjectileLaunch(state, projectile);
 }
 
 export function spawnEnemyArrow(
@@ -65,30 +70,33 @@ export function spawnEnemyArrow(
 }
 
 export function spawnMagicProjectile(state: GameState): boolean {
+  const timeDomain = getPlayerProjectileTimeDomain(state);
   if (
     state.projectiles.some(
       (projectile) =>
-        projectile.owner === 'player' && projectile.kind === 'magic',
+        projectile.owner === 'player' &&
+        projectile.kind === 'magic' &&
+        projectile.timeDomain === timeDomain,
     )
   ) {
     return false;
   }
 
-  state.projectiles.push(
-    createProjectile(
-      state,
-      'player',
-      'magic',
-      state.player.x,
-      state.player.y,
-      state.player.aimX,
-      state.player.aimY,
-      PLAYER_RADIUS,
-      MAGIC_PROJECTILE_RADIUS,
-      MAGIC_PROJECTILE_SPEED,
-      MAGIC_PROJECTILE_LIFETIME_FRAMES,
-    ),
+  const projectile = createProjectile(
+    state,
+    'player',
+    'magic',
+    state.player.x,
+    state.player.y,
+    state.player.aimX,
+    state.player.aimY,
+    PLAYER_RADIUS,
+    MAGIC_PROJECTILE_RADIUS,
+    MAGIC_PROJECTILE_SPEED,
+    MAGIC_PROJECTILE_LIFETIME_FRAMES,
   );
+  state.projectiles.push(projectile);
+  registerUltimateProjectileLaunch(state, projectile);
   return true;
 }
 
@@ -97,21 +105,29 @@ export function updateProjectiles(
   aimTargetX: number,
   aimTargetY: number,
   dt: number,
-  worldTimeScale: number,
+  updateEnemyProjectiles = true,
 ): void {
-  const worldDt = dt * worldTimeScale;
   const survivingProjectiles: ProjectileState[] = [];
+  const ultimateRecording = state.ultimate.phase === 'recording';
 
   for (const projectile of state.projectiles) {
+    if (
+      (ultimateRecording && projectile.timeDomain === 'world') ||
+      (projectile.owner === 'enemy' && !updateEnemyProjectiles)
+    ) {
+      survivingProjectiles.push(projectile);
+      continue;
+    }
+
     if (projectile.owner === 'player' && projectile.kind === 'magic') {
-      steerMagicProjectile(projectile, aimTargetX, aimTargetY, worldDt);
+      steerMagicProjectile(projectile, aimTargetX, aimTargetY, dt);
     }
 
     const startX = projectile.x;
     const startY = projectile.y;
-    projectile.x += projectile.velocityX * worldDt;
-    projectile.y += projectile.velocityY * worldDt;
-    projectile.framesRemaining -= worldTimeScale;
+    projectile.x += projectile.velocityX * dt;
+    projectile.y += projectile.velocityY * dt;
+    projectile.framesRemaining -= 1;
 
     if (
       segmentIntersectsTerrain(
@@ -128,15 +144,20 @@ export function updateProjectiles(
     if (projectile.owner === 'player') {
       const enemy = findIntersectedEnemy(state, projectile);
       if (enemy !== null) {
-        damageEnemy(
-          enemy,
-          projectile.kind === 'arrow' ? BOW_DAMAGE : MAGIC_DAMAGE,
-        );
-        resetTeleportCooldown(state);
+        const damage =
+          projectile.kind === 'arrow' ? BOW_DAMAGE : MAGIC_DAMAGE;
+        if (projectile.timeDomain === 'ultimate') {
+          recordUltimateHit(state, enemy.id, damage);
+        } else {
+          damageEnemy(enemy, damage);
+        }
         continue;
       }
     } else if (projectileIntersectsPlayer(state, projectile)) {
       damagePlayer(state, ARCHER_ATTACK_DAMAGE);
+      continue;
+    } else if (projectileIntersectsTeleportEcho(state, projectile)) {
+      consumeTeleportEcho(state);
       continue;
     }
 
@@ -175,6 +196,8 @@ function createProjectile(
     id: state.nextProjectileId,
     owner,
     kind,
+    timeDomain:
+      owner === 'player' ? getPlayerProjectileTimeDomain(state) : 'world',
     x: originX + aimX * spawnDistance,
     y: originY + aimY * spawnDistance,
     velocityX: aimX * speed,
@@ -184,6 +207,12 @@ function createProjectile(
 
   state.nextProjectileId += 1;
   return projectile;
+}
+
+function getPlayerProjectileTimeDomain(
+  state: GameState,
+): ProjectileState['timeDomain'] {
+  return state.ultimate.phase === 'recording' ? 'ultimate' : 'world';
 }
 
 function steerMagicProjectile(
@@ -231,6 +260,7 @@ function findIntersectedEnemy(
   for (const enemy of state.enemies) {
     if (
       enemy.action !== 'dead' &&
+      ultimateEnemyIsProjectedAlive(state, enemy.id) &&
       projectileIntersectsCircle(
         projectile,
         enemy.x,
@@ -253,6 +283,22 @@ function projectileIntersectsPlayer(
     state.player.x,
     state.player.y,
     PLAYER_RADIUS,
+  );
+}
+
+function projectileIntersectsTeleportEcho(
+  state: GameState,
+  projectile: ProjectileState,
+): boolean {
+  const echo = state.teleport.echo;
+  return (
+    echo.framesRemaining > 0 &&
+    projectileIntersectsCircle(
+      projectile,
+      echo.x,
+      echo.y,
+      PLAYER_RADIUS,
+    )
   );
 }
 

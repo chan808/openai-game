@@ -18,20 +18,20 @@ import {
 } from './formation';
 import { moveCircleTowardTarget } from './navigation';
 import { damagePlayer } from './playerDamage';
+import { consumeTeleportEcho } from './teleport';
 import { getTerrainRayDistance } from './terrain';
 
 export function updateSwordsman(
   state: GameState,
   swordsman: SwordsmanState,
   dt: number,
-  worldTimeScale: number,
 ): void {
   switch (swordsman.action) {
     case 'chasing':
-      updateChase(state, swordsman, dt * worldTimeScale);
+      updateChase(state, swordsman, dt);
       return;
     case 'windup':
-      if (tickActionTimer(swordsman, worldTimeScale)) {
+      if (tickActionTimer(swordsman)) {
         swordsman.action = 'attacking';
         swordsman.actionFramesRemaining = SWORDSMAN_ACTIVE_FRAMES;
         swordsman.hitPlayer = false;
@@ -39,13 +39,13 @@ export function updateSwordsman(
       return;
     case 'attacking':
       tryHitPlayer(state, swordsman);
-      if (tickActionTimer(swordsman, worldTimeScale)) {
+      if (tickActionTimer(swordsman)) {
         swordsman.action = 'recovering';
         swordsman.actionFramesRemaining = SWORDSMAN_RECOVERY_FRAMES;
       }
       return;
     case 'recovering':
-      if (tickActionTimer(swordsman, worldTimeScale)) {
+      if (tickActionTimer(swordsman)) {
         swordsman.action = 'chasing';
       }
       return;
@@ -58,7 +58,20 @@ export function swordsmanAttackIntersectsPlayer(
   state: GameState,
   swordsman: SwordsmanState,
 ): boolean {
-  const { player } = state;
+  return swordsmanAttackIntersectsCircle(
+    swordsman,
+    state.player.x,
+    state.player.y,
+    PLAYER_RADIUS,
+  );
+}
+
+function swordsmanAttackIntersectsCircle(
+  swordsman: SwordsmanState,
+  targetX: number,
+  targetY: number,
+  targetRadius: number,
+): boolean {
   const attackReach = getSwordsmanAttackReach(swordsman);
   if (attackReach <= SWORDSMAN_RADIUS) {
     return false;
@@ -77,15 +90,15 @@ export function swordsmanAttackIntersectsPlayer(
     1,
     Math.max(
       0,
-      ((player.x - startX) * lineX + (player.y - startY) * lineY) /
+      ((targetX - startX) * lineX + (targetY - startY) * lineY) /
         lineLengthSquared,
     ),
   );
   const closestX = startX + lineX * projection;
   const closestY = startY + lineY * projection;
-  const distanceX = player.x - closestX;
-  const distanceY = player.y - closestY;
-  const collisionRadius = PLAYER_RADIUS + SWORDSMAN_ATTACK_RADIUS;
+  const distanceX = targetX - closestX;
+  const distanceY = targetY - closestY;
+  const collisionRadius = targetRadius + SWORDSMAN_ATTACK_RADIUS;
 
   return (
     distanceX * distanceX + distanceY * distanceY <=
@@ -168,15 +181,33 @@ function faceTarget(
 }
 
 function tryHitPlayer(state: GameState, swordsman: SwordsmanState): void {
-  if (
-    swordsman.hitPlayer ||
-    !swordsmanAttackIntersectsPlayer(state, swordsman)
-  ) {
+  if (swordsman.hitPlayer) {
     return;
   }
 
-  swordsman.hitPlayer = true;
-  if (damagePlayer(state, SWORDSMAN_ATTACK_DAMAGE)) {
+  if (swordsmanAttackIntersectsPlayer(state, swordsman)) {
+    swordsman.hitPlayer = true;
+    if (damagePlayer(state, SWORDSMAN_ATTACK_DAMAGE)) {
+      swordsman.hitStopFramesRemaining = Math.max(
+        swordsman.hitStopFramesRemaining,
+        HIT_STOP_FRAMES,
+      );
+    }
+    return;
+  }
+
+  const echo = state.teleport.echo;
+  if (
+    echo.framesRemaining > 0 &&
+    swordsmanAttackIntersectsCircle(
+      swordsman,
+      echo.x,
+      echo.y,
+      PLAYER_RADIUS,
+    ) &&
+    consumeTeleportEcho(state)
+  ) {
+    swordsman.hitPlayer = true;
     swordsman.hitStopFramesRemaining = Math.max(
       swordsman.hitStopFramesRemaining,
       HIT_STOP_FRAMES,
@@ -184,13 +215,10 @@ function tryHitPlayer(state: GameState, swordsman: SwordsmanState): void {
   }
 }
 
-function tickActionTimer(
-  swordsman: SwordsmanState,
-  worldTimeScale: number,
-): boolean {
+function tickActionTimer(swordsman: SwordsmanState): boolean {
   swordsman.actionFramesRemaining = Math.max(
     0,
-    swordsman.actionFramesRemaining - worldTimeScale,
+    swordsman.actionFramesRemaining - 1,
   );
   return swordsman.actionFramesRemaining === 0;
 }

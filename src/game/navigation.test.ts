@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { SWORDSMAN_RADIUS } from '../content/tuning';
+import {
+  ARCHER_RADIUS,
+  ENEMY_NAVIGATION_WAYPOINTS,
+  FORMATION_ARCHER_HOLD_X,
+  FORMATION_ARCHER_HOLD_Y,
+  FORMATION_SWORDSMAN_HOLD_X,
+  FORMATION_SWORDSMAN_HOLD_Y,
+  SWORDSMAN_RADIUS,
+} from '../content/tuning';
 import { circleIntersectsTerrain } from './terrain';
 import { moveCircleTowardTarget } from './navigation';
 
@@ -28,5 +36,32 @@ describe('enemy navigation', () => {
 
     expect(position.x).toBeCloseTo(300);
     expect(position.y).toBeCloseTo(400);
+  });
+
+  it('keeps all configured anchors and waypoints outside terrain', () => {
+    expect(
+      circleIntersectsTerrain(
+        FORMATION_SWORDSMAN_HOLD_X,
+        FORMATION_SWORDSMAN_HOLD_Y,
+        SWORDSMAN_RADIUS,
+      ),
+    ).toBe(false);
+    expect(
+      circleIntersectsTerrain(
+        FORMATION_ARCHER_HOLD_X,
+        FORMATION_ARCHER_HOLD_Y,
+        ARCHER_RADIUS,
+      ),
+    ).toBe(false);
+
+    for (const waypoint of ENEMY_NAVIGATION_WAYPOINTS) {
+      expect(
+        circleIntersectsTerrain(
+          waypoint.x,
+          waypoint.y,
+          Math.max(SWORDSMAN_RADIUS, ARCHER_RADIUS),
+        ),
+      ).toBe(false);
+    }
   });
 });

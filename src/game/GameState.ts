@@ -121,6 +121,11 @@ export interface SlowState {
   active: boolean;
 }
 
+export interface PlayerInputBufferState {
+  primaryFramesRemaining: number;
+  teleportFramesRemaining: number;
+}
+
 export interface TeleportState {
   cooldownFramesRemaining: number;
   destinationX: number;
@@ -148,6 +153,7 @@ export interface GameState {
   bowAttack: RangedAttackState;
   magicAttack: RangedAttackState;
   slow: SlowState;
+  inputBuffer: PlayerInputBufferState;
   teleport: TeleportState;
   nextProjectileId: number;
   projectiles: ProjectileState[];
@@ -199,6 +205,10 @@ export function createInitialGameState(): GameState {
     },
     slow: {
       active: false,
+    },
+    inputBuffer: {
+      primaryFramesRemaining: 0,
+      teleportFramesRemaining: 0,
     },
     teleport: {
       cooldownFramesRemaining: 0,

@@ -110,9 +110,11 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    this.clock.advance(delta, (step) => {
-      updateGame(this.state, this.inputSource, step);
-    });
+    if (!this.skillLoadoutUi.isOpen()) {
+      this.clock.advance(delta, (step) => {
+        updateGame(this.state, this.inputSource, step);
+      });
+    }
     this.playPlayerDamageFeedback();
     this.renderState();
   }

@@ -13,9 +13,11 @@ import {
   LONGSWORD_DAMAGE,
   LONGSWORD_REACH,
   MAGIC_COOLDOWN_FRAMES,
+  PLAYER_INPUT_BUFFER_FRAMES,
   PLAYER_MOVE_SPEED,
   PLAYER_RADIUS,
 } from '../content/tuning';
+import { separatePlayerAndLivingEnemies } from './actorCollision';
 import { damageEnemy, getEnemyRadius } from './enemyState';
 import { updateEnemies } from './enemies';
 import type { GameState, WeaponId } from './GameState';
@@ -57,6 +59,7 @@ export function updateGame(
   // Capture the start-of-tick state so the final remaining frame still freezes
   // the actor even though its timer reaches zero during this update.
   const playerIsHitStopped = state.player.hitStopFramesRemaining > 0;
+  bufferHitStopInputs(state, input, playerIsHitStopped);
   tickPlayerHitStop(state);
   tickPlayerInvulnerability(state);
   if (!playerIsHitStopped) {
@@ -74,8 +77,18 @@ export function updateGame(
       input.aimTargetX,
       input.aimTargetY,
     );
-    tryTeleport(state, input.teleportPressed);
-    updateWeaponAttacks(state, input);
+    const teleportPressed =
+      input.teleportPressed ||
+      state.inputBuffer.teleportFramesRemaining > 0;
+    if (tryTeleport(state, teleportPressed)) {
+      state.inputBuffer.teleportFramesRemaining = 0;
+    }
+
+    const primaryPressed =
+      input.primaryPressed || state.inputBuffer.primaryFramesRemaining > 0;
+    if (updateWeaponAttacks(state, primaryPressed)) {
+      state.inputBuffer.primaryFramesRemaining = 0;
+    }
   }
 
   updateProjectiles(
@@ -84,6 +97,36 @@ export function updateGame(
     input.aimTargetY,
     step.dt,
     worldTimeScale,
+  );
+  separatePlayerAndLivingEnemies(state);
+  tickInputBuffer(state);
+}
+
+function bufferHitStopInputs(
+  state: GameState,
+  input: InputFrame,
+  playerIsHitStopped: boolean,
+): void {
+  if (!playerIsHitStopped) {
+    return;
+  }
+
+  if (input.primaryPressed) {
+    state.inputBuffer.primaryFramesRemaining = PLAYER_INPUT_BUFFER_FRAMES;
+  }
+  if (input.teleportPressed) {
+    state.inputBuffer.teleportFramesRemaining = PLAYER_INPUT_BUFFER_FRAMES;
+  }
+}
+
+function tickInputBuffer(state: GameState): void {
+  state.inputBuffer.primaryFramesRemaining = Math.max(
+    0,
+    state.inputBuffer.primaryFramesRemaining - 1,
+  );
+  state.inputBuffer.teleportFramesRemaining = Math.max(
+    0,
+    state.inputBuffer.teleportFramesRemaining - 1,
   );
 }
 
@@ -149,7 +192,9 @@ function updatePlayer(
     PLAYER_RADIUS,
   );
 
-  moveOutsideEnemies(state, movement.x, movement.y);
+  state.player.x = movement.x;
+  state.player.y = movement.y;
+  separatePlayerAndLivingEnemies(state);
 
   const aim = normalize(
     input.aimTargetX - state.player.x,
@@ -169,79 +214,55 @@ function normalize(x: number, y: number): { x: number; y: number } {
   return { x: x / length, y: y / length };
 }
 
-function moveOutsideEnemies(
+function updateWeaponAttacks(
   state: GameState,
-  requestedX: number,
-  requestedY: number,
-): void {
-  state.player.x = requestedX;
-  state.player.y = requestedY;
+  primaryPressed: boolean,
+): boolean {
+  const longswordAttackStarted = updateLongswordAttack(
+    state,
+    primaryPressed,
+  );
 
-  for (const enemy of state.enemies) {
-    if (enemy.action === 'dead') {
-      continue;
-    }
-
-    const dx = state.player.x - enemy.x;
-    const dy = state.player.y - enemy.y;
-    const distanceSquared = dx * dx + dy * dy;
-    const minimumDistance = PLAYER_RADIUS + getEnemyRadius(enemy);
-    if (
-      distanceSquared === 0 ||
-      distanceSquared >= minimumDistance * minimumDistance
-    ) {
-      continue;
-    }
-
-    const scale = minimumDistance / Math.sqrt(distanceSquared);
-    const separatedPosition = moveCircleAgainstTerrain(
-      state.player.x,
-      state.player.y,
-      enemy.x + dx * scale,
-      enemy.y + dy * scale,
-      PLAYER_RADIUS,
-    );
-    state.player.x = separatedPosition.x;
-    state.player.y = separatedPosition.y;
-  }
-}
-
-function updateWeaponAttacks(state: GameState, input: InputFrame): void {
-  updateLongswordAttack(state, input);
-
-  if (!input.primaryPressed) {
-    return;
+  if (!primaryPressed) {
+    return false;
   }
 
   switch (state.selectedWeapon) {
     case 'longsword':
-      return;
+      return longswordAttackStarted;
     case 'bow':
       if (state.bowAttack.cooldownFramesRemaining === 0) {
         spawnArrow(state);
         state.bowAttack.cooldownFramesRemaining = BOW_COOLDOWN_FRAMES;
+        return true;
       }
-      return;
+      return false;
     case 'magic':
       if (
         state.magicAttack.cooldownFramesRemaining === 0 &&
         spawnMagicProjectile(state)
       ) {
         state.magicAttack.cooldownFramesRemaining = MAGIC_COOLDOWN_FRAMES;
+        return true;
       }
-      return;
+      return false;
   }
 
   const exhaustiveWeapon: never = state.selectedWeapon;
   void exhaustiveWeapon;
+  return false;
 }
 
-function updateLongswordAttack(state: GameState, input: InputFrame): void {
+function updateLongswordAttack(
+  state: GameState,
+  primaryPressed: boolean,
+): boolean {
   const attack = state.longswordAttack;
+  let attackStarted = false;
 
   if (
     state.selectedWeapon === 'longsword' &&
-    input.primaryPressed &&
+    primaryPressed &&
     attack.cooldownFramesRemaining === 0
   ) {
     attack.activeFramesRemaining = LONGSWORD_ACTIVE_FRAMES;
@@ -249,10 +270,11 @@ function updateLongswordAttack(state: GameState, input: InputFrame): void {
     attack.hitEnemyIds = [];
     attack.aimX = state.player.aimX;
     attack.aimY = state.player.aimY;
+    attackStarted = true;
   }
 
   if (attack.activeFramesRemaining === 0) {
-    return;
+    return attackStarted;
   }
 
   const swingDirection = getLongswordSwingDirection(attack);
@@ -294,4 +316,5 @@ function updateLongswordAttack(state: GameState, input: InputFrame): void {
     );
     resetTeleportCooldown(state);
   }
+  return attackStarted;
 }

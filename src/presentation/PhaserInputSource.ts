@@ -101,6 +101,11 @@ export class PhaserInputSource implements InputSource {
 
   setGameplayEnabled(enabled: boolean): void {
     this.gameplayEnabled = enabled;
+    if (!enabled) {
+      this.primaryLatched = false;
+      this.teleportLatched = false;
+      this.weaponSlotLatched = null;
+    }
   }
 
   destroy(): void {

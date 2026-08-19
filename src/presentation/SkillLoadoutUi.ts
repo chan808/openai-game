@@ -76,6 +76,10 @@ export class SkillLoadoutUi {
     }
   }
 
+  isOpen(): boolean {
+    return this.open;
+  }
+
   destroy(): void {
     this.tabKey.off('down', this.toggle, this);
     this.scene.input.off('drag', this.onDrag, this);

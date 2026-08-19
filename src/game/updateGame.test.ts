@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ARCHER_RADIUS,
   ARENA_HEIGHT,
   ARENA_WIDTH,
   BOW_COOLDOWN_FRAMES,
@@ -9,6 +10,7 @@ import {
   HIT_FLASH_FRAMES,
   HIT_STOP_FRAMES,
   LONGSWORD_ACTIVE_FRAMES,
+  LONGSWORD_COOLDOWN_FRAMES,
   MAGIC_COOLDOWN_FRAMES,
   NORTHWEST_PILLAR_HEIGHT,
   NORTHWEST_PILLAR_WIDTH,
@@ -359,6 +361,144 @@ describe('updateGame', () => {
     expect(state.teleport.cooldownFramesRemaining).toBe(
       TELEPORT_COOLDOWN_FRAMES,
     );
+  });
+
+  it('buffers a primary press made during player hit stop', () => {
+    const state = createInitialGameState();
+    const inputSource = new TestInputSource({
+      ...IDLE_INPUT,
+      primaryPressed: true,
+    });
+    state.player.hitStopFramesRemaining = HIT_STOP_FRAMES;
+    state.longswordAttack.cooldownFramesRemaining =
+      LONGSWORD_COOLDOWN_FRAMES;
+    for (const enemy of state.enemies) {
+      enemy.action = 'dead';
+      enemy.actionFramesRemaining = 1_000;
+    }
+
+    runFrame(state, inputSource, 1);
+    inputSource.setInput(IDLE_INPUT);
+    for (
+      let frame = 2;
+      frame <= HIT_STOP_FRAMES + LONGSWORD_COOLDOWN_FRAMES;
+      frame += 1
+    ) {
+      runFrame(state, inputSource, frame);
+    }
+
+    expect(state.longswordAttack.activeFramesRemaining).toBe(
+      LONGSWORD_ACTIVE_FRAMES,
+    );
+    expect(state.longswordAttack.cooldownFramesRemaining).toBe(
+      LONGSWORD_COOLDOWN_FRAMES,
+    );
+    expect(state.inputBuffer.primaryFramesRemaining).toBe(0);
+  });
+
+  it('buffers a teleport press made during player hit stop', () => {
+    const state = createInitialGameState();
+    const startX = state.player.x;
+    const inputSource = new TestInputSource({
+      ...IDLE_INPUT,
+      aimTargetX: startX + 100,
+      aimTargetY: state.player.y,
+      teleportPressed: true,
+    });
+    state.player.hitStopFramesRemaining = HIT_STOP_FRAMES;
+
+    runFrame(state, inputSource, 1);
+    inputSource.setInput({
+      ...IDLE_INPUT,
+      aimTargetX: startX + 100,
+      aimTargetY: state.player.y,
+    });
+    for (let frame = 2; frame <= HIT_STOP_FRAMES; frame += 1) {
+      runFrame(state, inputSource, frame);
+    }
+
+    expect(state.player.x).toBe(startX);
+    runFrame(state, inputSource, HIT_STOP_FRAMES + 1);
+
+    expect(state.player.x).toBe(startX + 100);
+    expect(state.teleport.cooldownFramesRemaining).toBe(
+      TELEPORT_COOLDOWN_FRAMES,
+    );
+    expect(state.inputBuffer.teleportFramesRemaining).toBe(0);
+  });
+
+  it('separates overlapping actors while the player is hit-stopped', () => {
+    const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    state.player.hitStopFramesRemaining = HIT_STOP_FRAMES;
+    swordsman.hitStopFramesRemaining = HIT_STOP_FRAMES;
+    swordsman.x = state.player.x + 1;
+    swordsman.y = state.player.y;
+
+    runFrame(state, new TestInputSource(), 1);
+
+    expect(
+      Math.hypot(
+        swordsman.x - state.player.x,
+        swordsman.y - state.player.y,
+      ),
+    ).toBeGreaterThanOrEqual(PLAYER_RADIUS + SWORDSMAN_RADIUS - 0.001);
+  });
+
+  it('separates an enemy that respawns on the player', () => {
+    const state = createInitialGameState();
+    const swordsman = getSwordsman(state);
+    swordsman.action = 'dead';
+    swordsman.actionFramesRemaining = 1;
+    swordsman.spawnX = state.player.x;
+    swordsman.spawnY = state.player.y;
+
+    runFrame(state, new TestInputSource(), 1);
+
+    expect(swordsman.action).not.toBe('dead');
+    expect(
+      Math.hypot(
+        swordsman.x - state.player.x,
+        swordsman.y - state.player.y,
+      ),
+    ).toBeGreaterThanOrEqual(PLAYER_RADIUS + SWORDSMAN_RADIUS - 0.001);
+  });
+
+  it('restores non-overlap after teleport correction reaches another enemy', () => {
+    const state = createInitialGameState();
+    const [swordsman, archer] = state.enemies;
+    if (swordsman === undefined || archer === undefined) {
+      throw new Error('Expected the initial enemy pair');
+    }
+    state.player.x = 240;
+    state.player.y = 270;
+    swordsman.x = 370;
+    swordsman.y = 255;
+    swordsman.hitStopFramesRemaining = HIT_STOP_FRAMES;
+    archer.x = 445;
+    archer.y = 260;
+    archer.hitStopFramesRemaining = HIT_STOP_FRAMES;
+    const inputSource = new TestInputSource({
+      ...IDLE_INPUT,
+      aimTargetX: 480,
+      aimTargetY: 270,
+      teleportPressed: true,
+    });
+
+    runFrame(state, inputSource, 1);
+
+    for (const enemy of state.enemies) {
+      expect(
+        Math.hypot(
+          enemy.x - state.player.x,
+          enemy.y - state.player.y,
+        ),
+      ).toBeGreaterThanOrEqual(
+        PLAYER_RADIUS +
+          (enemy.kind === 'swordsman' ? SWORDSMAN_RADIUS : ARCHER_RADIUS) -
+          0.001,
+      );
+    }
   });
 
   it('slows target hit stop without slowing player timers or mana drain', () => {
